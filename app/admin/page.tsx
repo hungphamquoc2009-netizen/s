@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
   Users, Activity, CreditCard, Package, LogOut, Check, X, Edit, EyeOff, Plus, ArrowDownToLine, ArrowUpFromLine, Clock, LayoutDashboard,
-  MoreVertical, ChevronUp, ChevronDown, Gift, Trash2
+  MoreVertical, ChevronUp, ChevronDown, Gift, Trash2, Search
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -28,9 +28,10 @@ export default function AdminDashboard() {
   const [editingPackage, setEditingPackage] = useState<any>(null);
   const [pkgForm, setPkgForm] = useState({ name: '', return: '', limits: '', duration: '' });
 
-  // States cho Tab Users (Sắp xếp và Dropdown)
+  // States cho Tab Users (Sắp xếp, Tìm kiếm và Dropdown)
   const [sortConfig, setSortConfig] = useState<{ key: 'totalDeposit' | 'totalWithdrawal', direction: 'asc' | 'desc' } | null>(null);
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const loadData = async () => {
     setIsLoading(true);
@@ -170,7 +171,7 @@ export default function AdminDashboard() {
       return acc;
   }, { todayDeposits: 0, todayWithdrawals: 0, totalDeposits: 0, totalWithdrawals: 0 });
 
-  // --- TÍNH TOÁN DỮ LIỆU USER CHO TAB KHÁCH HÀNG ---
+  // --- TÍNH TOÁN & LỌC DỮ LIỆU USER CHO TAB KHÁCH HÀNG ---
   const handleSort = (key: 'totalDeposit' | 'totalWithdrawal') => {
     let direction: 'asc' | 'desc' = 'desc';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') {
@@ -179,7 +180,7 @@ export default function AdminDashboard() {
     setSortConfig({ key, direction });
   };
 
-  const processedUsers = users.map(u => {
+  let processedUsers = users.map(u => {
       const userTxs = transactions.filter(t => t.user_id === u.id && t.status === 'success');
       const totalDeposit = userTxs.filter(t => t.type === 'nap_tien').reduce((sum, t) => sum + (t.amount || 0), 0);
       const totalWithdrawal = userTxs.filter(t => t.type === 'rut_tien').reduce((sum, t) => sum + (t.amount || 0), 0);
@@ -191,6 +192,16 @@ export default function AdminDashboard() {
       };
   });
 
+  // Tìm kiếm User
+  if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      processedUsers = processedUsers.filter(u => 
+          (u.email && u.email.toLowerCase().includes(q)) || 
+          (u.id && u.id.toLowerCase().includes(q))
+      );
+  }
+
+  // Sắp xếp User
   if (sortConfig !== null) {
       processedUsers.sort((a, b) => {
           if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1;
@@ -283,83 +294,99 @@ export default function AdminDashboard() {
 
         {/* TABLES AREA */}
         {activeTab !== 'overview' && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-visible">
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-visible flex flex-col">
           
           {/* TAB: USERS */}
           {activeTab === 'users' && (
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
-                  <th className="p-4 font-semibold">Email đăng ký</th>
-                  <th className="p-4 font-semibold text-center">Phân loại</th>
-                  <th className="p-4 font-semibold">
-                      <button onClick={() => handleSort('totalDeposit')} className="flex items-center gap-1 hover:text-blue-600 transition-colors">
-                          Tổng nạp
-                          {sortConfig?.key === 'totalDeposit' ? (sortConfig.direction === 'asc' ? <ChevronUp className="w-4 h-4"/> : <ChevronDown className="w-4 h-4"/>) : <ChevronDown className="w-4 h-4 opacity-30"/>}
-                      </button>
-                  </th>
-                  <th className="p-4 font-semibold">
-                      <button onClick={() => handleSort('totalWithdrawal')} className="flex items-center gap-1 hover:text-blue-600 transition-colors">
-                          Tổng rút
-                          {sortConfig?.key === 'totalWithdrawal' ? (sortConfig.direction === 'asc' ? <ChevronUp className="w-4 h-4"/> : <ChevronDown className="w-4 h-4"/>) : <ChevronDown className="w-4 h-4 opacity-30"/>}
-                      </button>
-                  </th>
-                  <th className="p-4 font-semibold">Số dư hiện tại</th>
-                  <th className="p-4 font-semibold text-center">Hành động</th>
-                </tr>
-              </thead>
-              <tbody className="text-sm">
-                {processedUsers.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-slate-500">Chưa có khách hàng nào.</td></tr>}
-                {processedUsers.map(u => (
-                  <tr key={u.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                    <td className="p-4 font-medium text-slate-700">
-                        {u.email || u.id.substring(0, 8) + '...'}
-                        <div className="text-xs text-slate-400 font-normal mt-1">Gia nhập: {u.created_at ? new Date(u.created_at).toLocaleDateString('vi-VN') : '-'}</div>
-                    </td>
-                    <td className="p-4 text-center">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${u.hasDeposited ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
-                         {u.hasDeposited ? 'Đã nạp' : 'Chưa nạp'}
-                      </span>
-                    </td>
-                    <td className="p-4 font-bold text-emerald-600">+{u.totalDeposit.toLocaleString('vi-VN')} ₫</td>
-                    <td className="p-4 font-bold text-rose-600">-{u.totalWithdrawal.toLocaleString('vi-VN')} ₫</td>
-                    <td className="p-4 font-bold text-blue-600">{u.balance?.toLocaleString('vi-VN')} ₫</td>
-                    <td className="p-4 text-center relative">
-                        <button 
-                            onClick={() => setOpenDropdownId(openDropdownId === u.id ? null : u.id)} 
-                            className="inline-flex items-center justify-center p-2 rounded-lg text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition-colors"
-                        >
-                            <MoreVertical className="w-5 h-5" />
-                        </button>
+            <>
+              {/* Thanh Tìm Kiếm */}
+              <div className="p-4 border-b border-slate-200 bg-white">
+                  <div className="relative max-w-md">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                      <input
+                          type="text"
+                          placeholder="Tìm kiếm theo Email hoặc ID tài khoản..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50 focus:bg-white transition-colors text-sm font-medium"
+                      />
+                  </div>
+              </div>
 
-                        {/* Dropdown Menu */}
-                        {openDropdownId === u.id && (
-                            <>
-                                {/* Overlay để đóng menu khi click ra ngoài */}
-                                <div className="fixed inset-0 z-10" onClick={() => setOpenDropdownId(null)}></div>
-                                
-                                <div className="absolute right-8 top-10 w-56 bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden py-1">
-                                    <button 
-                                        onClick={() => { openEditUser(u); setOpenDropdownId(null); }} 
-                                        className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex items-center gap-3 text-slate-700 font-medium transition-colors"
-                                    >
-                                        <Edit className="w-4 h-4 text-slate-400"/> Sửa thông tin tài khoản
-                                    </button>
-                                    <div className="h-px bg-slate-100 my-1"></div>
-                                    <button 
-                                        onClick={() => { alert('Tính năng tặng gói'); setOpenDropdownId(null); }} 
-                                        className="w-full text-left px-4 py-2.5 text-sm hover:bg-blue-50 flex items-center gap-3 text-blue-600 font-medium transition-colors"
-                                    >
-                                        <Gift className="w-4 h-4"/> Tặng gói thủ công
-                                    </button>
-                                </div>
-                            </>
-                        )}
-                    </td>
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
+                    <th className="p-4 font-semibold">Email đăng ký</th>
+                    <th className="p-4 font-semibold text-center">Phân loại</th>
+                    <th className="p-4 font-semibold">
+                        <button onClick={() => handleSort('totalDeposit')} className="flex items-center gap-1 hover:text-blue-600 transition-colors">
+                            Tổng nạp
+                            {sortConfig?.key === 'totalDeposit' ? (sortConfig.direction === 'asc' ? <ChevronUp className="w-4 h-4"/> : <ChevronDown className="w-4 h-4"/>) : <ChevronDown className="w-4 h-4 opacity-30"/>}
+                        </button>
+                    </th>
+                    <th className="p-4 font-semibold">
+                        <button onClick={() => handleSort('totalWithdrawal')} className="flex items-center gap-1 hover:text-blue-600 transition-colors">
+                            Tổng rút
+                            {sortConfig?.key === 'totalWithdrawal' ? (sortConfig.direction === 'asc' ? <ChevronUp className="w-4 h-4"/> : <ChevronDown className="w-4 h-4"/>) : <ChevronDown className="w-4 h-4 opacity-30"/>}
+                        </button>
+                    </th>
+                    <th className="p-4 font-semibold">Số dư hiện tại</th>
+                    <th className="p-4 font-semibold text-center">Hành động</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="text-sm">
+                  {processedUsers.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-slate-500">Không tìm thấy khách hàng nào.</td></tr>}
+                  {processedUsers.map(u => (
+                    <tr key={u.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                      <td className="p-4 font-medium text-slate-700">
+                          {u.email || u.id.substring(0, 8) + '...'}
+                          <div className="text-xs text-slate-400 font-normal mt-1">Gia nhập: {u.created_at ? new Date(u.created_at).toLocaleDateString('vi-VN') : '-'}</div>
+                      </td>
+                      <td className="p-4 text-center">
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${u.hasDeposited ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
+                           {u.hasDeposited ? 'Đã nạp' : 'Chưa nạp'}
+                        </span>
+                      </td>
+                      <td className="p-4 font-bold text-emerald-600">+{u.totalDeposit.toLocaleString('vi-VN')} ₫</td>
+                      <td className="p-4 font-bold text-rose-600">-{u.totalWithdrawal.toLocaleString('vi-VN')} ₫</td>
+                      <td className="p-4 font-bold text-blue-600">{u.balance?.toLocaleString('vi-VN')} ₫</td>
+                      <td className="p-4 text-center relative">
+                          <button 
+                              onClick={() => setOpenDropdownId(openDropdownId === u.id ? null : u.id)} 
+                              className="inline-flex items-center justify-center p-2 rounded-lg text-slate-400 hover:bg-slate-200 hover:text-slate-700 transition-colors"
+                          >
+                              <MoreVertical className="w-5 h-5" />
+                          </button>
+
+                          {/* Dropdown Menu */}
+                          {openDropdownId === u.id && (
+                              <>
+                                  {/* Overlay để đóng menu khi click ra ngoài */}
+                                  <div className="fixed inset-0 z-10" onClick={() => setOpenDropdownId(null)}></div>
+                                  
+                                  <div className="absolute right-8 top-10 w-56 bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden py-1">
+                                      <button 
+                                          onClick={() => { openEditUser(u); setOpenDropdownId(null); }} 
+                                          className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex items-center gap-3 text-slate-700 font-medium transition-colors"
+                                      >
+                                          <Edit className="w-4 h-4 text-slate-400"/> Sửa thông tin tài khoản
+                                      </button>
+                                      <div className="h-px bg-slate-100 my-1"></div>
+                                      <button 
+                                          onClick={() => { alert('Tính năng tặng gói'); setOpenDropdownId(null); }} 
+                                          className="w-full text-left px-4 py-2.5 text-sm hover:bg-blue-50 flex items-center gap-3 text-blue-600 font-medium transition-colors"
+                                      >
+                                          <Gift className="w-4 h-4"/> Tặng gói thủ công
+                                      </button>
+                                  </div>
+                              </>
+                          )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
           )}
 
           {/* TAB: PACKAGES */}
