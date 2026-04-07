@@ -43,6 +43,11 @@ export default function FintechDashboard() {
   const [userId, setUserId] = useState<string>('');
   const [balance, setBalance] = useState<number>(0);
   const [txHistory, setTxHistory] = useState<any[]>([]);
+  
+  // States kiểm tra điều kiện rút tiền
+  const [bankAccount, setBankAccount] = useState<string | null>(null);
+  const [bankName, setBankName] = useState<string | null>(null);
+  const [hasPurchasedPackage, setHasPurchasedPackage] = useState<boolean>(false);
 
   // States cho Popup Rút tiền
   const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
@@ -63,17 +68,20 @@ export default function FintechDashboard() {
       setUserName(email.split('@')[0]);
       setUserId(session.user.id);
 
-      // Lấy số dư từ bảng profiles (Đã sửa lỗi lấy dữ liệu, bắt lỗi rõ ràng)
+      // Lấy thông tin user (Số dư, TK ngân hàng, Trạng thái gói)
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('balance')
+        .select('balance, bank_account, bank_name, has_purchased_package')
         .eq('id', session.user.id)
         .single();
         
       if (profile && !profileError) {
           setBalance(profile.balance);
+          setBankAccount(profile.bank_account);
+          setBankName(profile.bank_name);
+          setHasPurchasedPackage(profile.has_purchased_package || false);
       } else {
-          setBalance(0); // Đưa về 0 nếu không tìm thấy profile hoặc có lỗi
+          setBalance(0);
       }
 
       // Lấy lịch sử giao dịch (Hiển thị 3 cái gần nhất)
@@ -96,10 +104,33 @@ export default function FintechDashboard() {
     window.location.href = '/login';
   };
 
+  // --- HÀM KIỂM TRA TRƯỚC KHI MỞ POPUP RÚT TIỀN ---
+  const handleOpenWithdraw = () => {
+      // 1. Kiểm tra đã mua gói chưa
+      if (!hasPurchasedPackage) {
+          alert("Bạn cần phải mua ít nhất 1 gói để có thể thực hiện rút tiền!");
+          return;
+      }
+
+      // 2. Kiểm tra đã liên kết ngân hàng chưa
+      if (!bankAccount) {
+          window.location.href = '/lien-ket-ngan-hang';
+          return;
+      }
+
+      // Đủ điều kiện -> Mở popup
+      setIsWithdrawOpen(true);
+  };
+
   // --- HÀM XỬ LÝ RÚT TIỀN ---
   const handleWithdraw = async (e: React.FormEvent) => {
       e.preventDefault();
       const numAmount = parseInt(amount.replace(/,/g, ''));
+
+      if (numAmount < 30000) {
+          alert("Số tiền rút tối thiểu là 30,000 VNĐ!");
+          return;
+      }
 
       if (numAmount > balance) {
           alert("Số dư không đủ để thực hiện giao dịch này!");
@@ -108,18 +139,20 @@ export default function FintechDashboard() {
 
       setIsProcessing(true);
 
-      // 1. Lưu giao dịch 'pending' vào DB
+      // 1. Lưu giao dịch 'pending' vào DB, kẹp thêm thông tin ngân hàng đã liên kết
       await supabase.from('transactions').insert({
           user_id: userId,
           type: 'rut_tien',
           amount: numAmount,
-          status: 'pending'
+          status: 'pending',
+          bank_account: bankAccount,
+          bank_name: bankName
       });
 
       // 2. NƠI GỌI API BANK CỦA BẠN (VD: Bắn lệnh chuyển tiền tự động ra tài khoản khách)
       /* await fetch('https://api.bank.com/transfer', {
           method: 'POST',
-          body: JSON.stringify({ amount: numAmount, bank_code: 'VCB', account_number: '...' })
+          body: JSON.stringify({ amount: numAmount, bank_code: bankName, account_number: bankAccount })
       });
       */
 
@@ -154,20 +187,20 @@ export default function FintechDashboard() {
                         <input 
                             type="number" 
                             required
-                            min="50000"
+                            min="30000"
                             value={amount}
                             onChange={(e) => setAmount(e.target.value)}
                             className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500 text-lg font-bold"
-                            placeholder="VD: 500000"
+                            placeholder="Tối thiểu: 30,000 VNĐ"
                         />
                     </div>
                     <div className="mb-6">
-                        <label className="block text-slate-700 font-bold mb-2">Số tài khoản nhận</label>
+                        <label className="block text-slate-700 font-bold mb-2">Tài khoản nhận (Đã liên kết)</label>
                         <input 
                             type="text" 
-                            required
-                            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-500"
-                            placeholder="VD: 0123456789"
+                            readOnly
+                            value={`${bankName ? bankName + ' - ' : ''}${bankAccount}`}
+                            className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl focus:outline-none text-slate-500 font-medium cursor-not-allowed"
                         />
                     </div>
                     <button disabled={isProcessing} type="submit" className="w-full bg-slate-900 text-white font-bold py-3.5 rounded-xl hover:bg-slate-800 transition-colors">
@@ -222,7 +255,7 @@ export default function FintechDashboard() {
                 </div>
                 
                 <div className="flex w-full md:w-auto gap-3">
-                  <button onClick={() => setIsWithdrawOpen(true)} className="flex-1 md:flex-none bg-blue-600/30 hover:bg-blue-600/50 border border-white/20 text-white px-6 py-3 rounded-xl font-semibold backdrop-blur-sm transition-transform hover:scale-105 flex items-center justify-center gap-2">
+                  <button onClick={handleOpenWithdraw} className="flex-1 md:flex-none bg-blue-600/30 hover:bg-blue-600/50 border border-white/20 text-white px-6 py-3 rounded-xl font-semibold backdrop-blur-sm transition-transform hover:scale-105 flex items-center justify-center gap-2">
                     <ArrowUpFromLine className="w-4 h-4" /> Withdraw
                   </button>
                 </div>
