@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
-  Users, Activity, CreditCard, Package, LogOut, Check, X, Edit 
+  Users, Activity, CreditCard, Package, LogOut, Check, X, Edit, EyeOff, Plus, ArrowDownToLine, ArrowUpFromLine, Clock
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -11,34 +11,45 @@ export default function AdminDashboard() {
   const [users, setUsers] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [packages, setPackages] = useState<any[]>([
-    { id: 1, name: 'Basic', return: '8%' },
-    { id: 2, name: 'Advanced', return: '12%' },
-    { id: 3, name: 'VIP Elite', return: '18%' }
-  ]); // Tạm dùng state cho Gói nếu chưa có bảng packages trong DB
+    { id: 1, name: 'Basic', return: '8%', limits: '5M - 50M', duration: '6 Months' },
+    { id: 2, name: 'Advanced', return: '12%', limits: '50M - 200M', duration: '12 Months' },
+    { id: 3, name: 'VIP Elite', return: '18%', limits: '200M+', duration: '24 Months' }
+  ]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // States cho Popup Sửa STK Khách hàng
+  // States cho Popup Sửa/Thêm Khách hàng & Gói
   const [isEditUserOpen, setIsEditUserOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
   const [newBankName, setNewBankName] = useState('');
   const [newBankAccount, setNewBankAccount] = useState('');
 
-  // States cho Popup Sửa Gói
-  const [isEditPackageOpen, setIsEditPackageOpen] = useState(false);
+  const [isPackageModalOpen, setIsPackageModalOpen] = useState(false);
   const [editingPackage, setEditingPackage] = useState<any>(null);
-  const [newReturn, setNewReturn] = useState('');
+  const [pkgForm, setPkgForm] = useState({ name: '', return: '', limits: '', duration: '' });
 
   const loadData = async () => {
     setIsLoading(true);
-    // Lấy danh sách user
-    const { data: profiles } = await supabase.from('profiles').select('*');
-    if (profiles) setUsers(profiles);
+    try {
+        // Lấy danh sách user (Đảm bảo RLS trên Supabase cho phép)
+        const { data: profiles, error: profileError } = await supabase.from('profiles').select('*');
+        if (profileError) {
+            console.error("Lỗi lấy danh sách user:", profileError);
+        } else if (profiles) {
+            setUsers(profiles);
+        }
 
-    // Lấy lịch sử giao dịch
-    const { data: txs } = await supabase.from('transactions').select('*').order('created_at', { ascending: false });
-    if (txs) setTransactions(txs);
-    
-    setIsLoading(false);
+        // Lấy lịch sử giao dịch
+        const { data: txs, error: txError } = await supabase.from('transactions').select('*').order('created_at', { ascending: false });
+        if (txError) {
+            console.error("Lỗi lấy giao dịch:", txError);
+        } else if (txs) {
+            setTransactions(txs);
+        }
+    } catch (err) {
+        console.error("Lỗi hệ thống:", err);
+    } finally {
+        setIsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -50,18 +61,15 @@ export default function AdminDashboard() {
     window.location.href = '/login';
   };
 
-  // --- LOGIC DUYỆT / TỪ CHỐI RÚT TIỀN ---
+  // --- LOGIC 3 NÚT DUYỆT RÚT TIỀN ---
   const handleApproveWithdrawal = async (tx: any) => {
-    if (!confirm(`Xác nhận duyệt lệnh rút ${tx.amount.toLocaleString()} VND?`)) return;
+    if (!confirm(`Xác nhận DUYỆT lệnh rút ${tx.amount.toLocaleString()} VND?`)) return;
     
-    // 1. Trừ tiền trong profile (Vì khi đặt lệnh pending tiền vẫn còn trong số dư)
     const userToUpdate = users.find(u => u.id === tx.user_id);
     if (userToUpdate) {
         const newBalance = userToUpdate.balance - tx.amount;
         await supabase.from('profiles').update({ balance: newBalance }).eq('id', tx.user_id);
     }
-    
-    // 2. Cập nhật trạng thái giao dịch
     await supabase.from('transactions').update({ status: 'success' }).eq('id', tx.id);
     alert('Đã duyệt thành công!');
     loadData();
@@ -71,6 +79,14 @@ export default function AdminDashboard() {
     if (!confirm('Bạn có chắc chắn muốn TỪ CHỐI lệnh rút này?')) return;
     await supabase.from('transactions').update({ status: 'rejected' }).eq('id', id);
     alert('Đã từ chối lệnh rút!');
+    loadData();
+  };
+
+  const handleSuspendWithdrawal = async (id: string) => {
+    if (!confirm('Bạn có chắc muốn TREO lệnh này? (Lệnh sẽ bị ẩn khỏi danh sách chờ nhưng khách không biết)')) return;
+    // Chuyển status thành 'treo' để lọc ẩn đi ở trang admin
+    await supabase.from('transactions').update({ status: 'treo' }).eq('id', id);
+    alert('Đã đưa lệnh rút vào trạng thái treo!');
     loadData();
   };
 
@@ -92,58 +108,90 @@ export default function AdminDashboard() {
     loadData();
   };
 
-  // --- LOGIC SỬA GÓI ĐẦU TƯ ---
+  // --- LOGIC THÊM & SỬA GÓI ĐẦU TƯ ---
+  const openAddPackage = () => {
+    setEditingPackage(null);
+    setPkgForm({ name: '', return: '', limits: '', duration: '' });
+    setIsPackageModalOpen(true);
+  };
+
   const openEditPackage = (pkg: any) => {
     setEditingPackage(pkg);
-    setNewReturn(pkg.return);
-    setIsEditPackageOpen(true);
+    setPkgForm({ name: pkg.name, return: pkg.return, limits: pkg.limits, duration: pkg.duration });
+    setIsPackageModalOpen(true);
   };
 
   const savePackageInfo = () => {
-    const updated = packages.map(p => p.id === editingPackage.id ? { ...p, return: newReturn } : p);
-    setPackages(updated);
-    // Nếu bạn có bảng 'packages' trên supabase thì gọi update tại đây
-    alert('Cập nhật lợi nhuận gói thành công!');
-    setIsEditPackageOpen(false);
+    if (editingPackage) {
+        // Cập nhật gói cũ
+        const updated = packages.map(p => p.id === editingPackage.id ? { ...p, ...pkgForm } : p);
+        setPackages(updated);
+        alert('Cập nhật chi tiết gói thành công!');
+    } else {
+        // Thêm gói mới
+        const newPkg = { id: Date.now(), ...pkgForm };
+        setPackages([...packages, newPkg]);
+        alert('Đã thêm gói đầu tư mới!');
+    }
+    // Nếu có DB packages thật, hãy thêm logic supabase.from('packages').upsert(...) ở đây
+    setIsPackageModalOpen(false);
   };
 
-  if (isLoading) return <div className="min-h-screen flex items-center justify-center">Đang tải dữ liệu...</div>;
+  if (isLoading) return <div className="min-h-screen flex items-center justify-center font-semibold text-slate-500">Đang tải dữ liệu hệ thống...</div>;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-slate-50 flex font-sans">
       {/* SIDEBAR */}
-      <div className="w-64 bg-slate-900 text-slate-300 flex flex-col">
+      <div className="w-64 bg-slate-900 text-slate-300 flex flex-col shadow-xl z-10">
         <div className="p-6 border-b border-slate-800">
           <h1 className="text-xl font-bold text-white flex items-center gap-2">
             <Activity className="w-6 h-6 text-blue-500" /> Admin Panel
           </h1>
         </div>
-        <nav className="flex-1 p-4 space-y-2">
-          <button onClick={() => setActiveTab('users')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'users' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
+        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+          <p className="px-4 text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 mt-2">Quản lý chung</p>
+          <button onClick={() => setActiveTab('users')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${activeTab === 'users' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'hover:bg-slate-800'}`}>
             <Users className="w-5 h-5" /> Khách hàng
           </button>
-          <button onClick={() => setActiveTab('packages')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'packages' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
+          <button onClick={() => setActiveTab('packages')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${activeTab === 'packages' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'hover:bg-slate-800'}`}>
             <Package className="w-5 h-5" /> Gói đầu tư
           </button>
-          <button onClick={() => setActiveTab('withdrawals')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'withdrawals' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
-            <CreditCard className="w-5 h-5" /> Nạp / Rút tiền
+
+          <p className="px-4 text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 mt-6">Giao dịch</p>
+          <button onClick={() => setActiveTab('approvals')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${activeTab === 'approvals' ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20' : 'hover:bg-slate-800'}`}>
+            <Clock className="w-5 h-5" /> Duyệt Rút tiền
           </button>
-          <button onClick={() => setActiveTab('transactions')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${activeTab === 'transactions' ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
-            <Activity className="w-5 h-5" /> Lịch sử hệ thống
+          <button onClick={() => setActiveTab('deposits')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${activeTab === 'deposits' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'hover:bg-slate-800'}`}>
+            <ArrowDownToLine className="w-5 h-5" /> Lịch sử Nạp
+          </button>
+          <button onClick={() => setActiveTab('withdrawals')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${activeTab === 'withdrawals' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'hover:bg-slate-800'}`}>
+            <ArrowUpFromLine className="w-5 h-5" /> Lịch sử Rút
           </button>
         </nav>
         <div className="p-4 border-t border-slate-800">
-          <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-rose-500/10 hover:text-rose-500 transition-colors">
+          <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-rose-500/10 hover:text-rose-500 transition-colors font-medium">
             <LogOut className="w-5 h-5" /> Đăng xuất
           </button>
         </div>
       </div>
 
       {/* MAIN CONTENT */}
-      <div className="flex-1 p-8 overflow-y-auto">
-        <h2 className="text-2xl font-bold text-slate-800 mb-8 capitalize">
-          Quản lý {activeTab === 'users' ? 'Khách hàng' : activeTab === 'packages' ? 'Gói đầu tư' : activeTab === 'withdrawals' ? 'Yêu cầu Nạp/Rút' : 'Lịch sử giao dịch'}
-        </h2>
+      <div className="flex-1 p-8 overflow-y-auto bg-[#F5F7FB]">
+        <div className="flex justify-between items-center mb-8">
+            <h2 className="text-2xl font-bold text-slate-800 capitalize">
+            {activeTab === 'users' && 'Danh sách Khách hàng'}
+            {activeTab === 'packages' && 'Cấu hình Gói đầu tư'}
+            {activeTab === 'approvals' && 'Yêu cầu Rút tiền đang chờ'}
+            {activeTab === 'deposits' && 'Lịch sử Nạp tiền'}
+            {activeTab === 'withdrawals' && 'Lịch sử Rút tiền'}
+            </h2>
+            
+            {activeTab === 'packages' && (
+                <button onClick={openAddPackage} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-sm transition-all">
+                    <Plus className="w-5 h-5" /> Thêm Gói Mới
+                </button>
+            )}
+        </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           
@@ -152,22 +200,23 @@ export default function AdminDashboard() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
-                  <th className="p-4 font-semibold">User ID</th>
+                  <th className="p-4 font-semibold">User ID / Email</th>
                   <th className="p-4 font-semibold">Số dư (VNĐ)</th>
                   <th className="p-4 font-semibold">Ngân hàng</th>
                   <th className="p-4 font-semibold">Số tài khoản</th>
-                  <th className="p-4 font-semibold">Hành động</th>
+                  <th className="p-4 font-semibold text-center">Hành động</th>
                 </tr>
               </thead>
               <tbody className="text-sm">
+                {users.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-slate-500">Chưa có khách hàng nào hoặc bị chặn quyền xem.</td></tr>}
                 {users.map(u => (
-                  <tr key={u.id} className="border-b border-slate-100 hover:bg-slate-50">
-                    <td className="p-4 truncate max-w-[150px]">{u.id}</td>
-                    <td className="p-4 font-bold text-blue-600">{u.balance?.toLocaleString('vi-VN')}</td>
-                    <td className="p-4">{u.bank_name || 'Chưa LK'}</td>
-                    <td className="p-4">{u.bank_account || 'Chưa LK'}</td>
-                    <td className="p-4">
-                      <button onClick={() => openEditUser(u)} className="flex items-center gap-1 text-blue-500 hover:text-blue-700 font-medium">
+                  <tr key={u.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                    <td className="p-4 truncate max-w-[200px] text-slate-600 font-medium">{u.id}</td>
+                    <td className="p-4 font-bold text-blue-600">{u.balance?.toLocaleString('vi-VN')} ₫</td>
+                    <td className="p-4 text-slate-700">{u.bank_name || <span className="text-slate-400 italic">Chưa LK</span>}</td>
+                    <td className="p-4 text-slate-700">{u.bank_account || <span className="text-slate-400 italic">Chưa LK</span>}</td>
+                    <td className="p-4 text-center">
+                      <button onClick={() => openEditUser(u)} className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 font-medium transition-colors">
                         <Edit className="w-4 h-4" /> Sửa STK
                       </button>
                     </td>
@@ -184,17 +233,21 @@ export default function AdminDashboard() {
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
                   <th className="p-4 font-semibold">Tên gói</th>
                   <th className="p-4 font-semibold">Lợi nhuận</th>
-                  <th className="p-4 font-semibold">Hành động</th>
+                  <th className="p-4 font-semibold">Hạn mức</th>
+                  <th className="p-4 font-semibold">Thời gian</th>
+                  <th className="p-4 font-semibold text-center">Hành động</th>
                 </tr>
               </thead>
               <tbody className="text-sm">
                 {packages.map(p => (
-                  <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50">
+                  <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
                     <td className="p-4 font-bold text-slate-800">{p.name}</td>
                     <td className="p-4 font-bold text-emerald-500">{p.return}</td>
-                    <td className="p-4">
-                      <button onClick={() => openEditPackage(p)} className="flex items-center gap-1 text-blue-500 hover:text-blue-700 font-medium">
-                        <Edit className="w-4 h-4" /> Sửa Lợi nhuận
+                    <td className="p-4 text-slate-600 font-medium">{p.limits}</td>
+                    <td className="p-4 text-slate-600">{p.duration}</td>
+                    <td className="p-4 text-center">
+                      <button onClick={() => openEditPackage(p)} className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 font-medium transition-colors">
+                        <Edit className="w-4 h-4" /> Chỉnh sửa
                       </button>
                     </td>
                   </tr>
@@ -203,40 +256,41 @@ export default function AdminDashboard() {
             </table>
           )}
 
-          {/* TAB: WITHDRAWALS & DEPOSITS */}
-          {activeTab === 'withdrawals' && (
+          {/* TAB: APPROVALS (DUYỆT RÚT TIỀN) */}
+          {activeTab === 'approvals' && (
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
                   <th className="p-4 font-semibold">User ID</th>
-                  <th className="p-4 font-semibold">Loại</th>
-                  <th className="p-4 font-semibold">Số tiền (VNĐ)</th>
-                  <th className="p-4 font-semibold">Trạng thái</th>
-                  <th className="p-4 font-semibold">Hành động</th>
+                  <th className="p-4 font-semibold">Thông tin STK nhận</th>
+                  <th className="p-4 font-semibold text-rose-600">Số tiền rút (VNĐ)</th>
+                  <th className="p-4 font-semibold text-center">Hành động xử lý</th>
                 </tr>
               </thead>
               <tbody className="text-sm">
-                {transactions.filter(t => t.type === 'rut_tien' || t.type === 'nap_tien').map(t => (
-                  <tr key={t.id} className="border-b border-slate-100 hover:bg-slate-50">
-                    <td className="p-4 truncate max-w-[150px]">{t.user_id}</td>
-                    <td className="p-4 font-bold uppercase">{t.type === 'rut_tien' ? 'Rút tiền' : 'Nạp tiền'}</td>
-                    <td className="p-4 font-bold">{t.amount?.toLocaleString('vi-VN')}</td>
+                {transactions.filter(t => t.type === 'rut_tien' && t.status === 'pending').length === 0 && (
+                    <tr><td colSpan={4} className="p-8 text-center text-slate-500 font-medium">Không có lệnh rút tiền nào đang chờ duyệt.</td></tr>
+                )}
+                {transactions.filter(t => t.type === 'rut_tien' && t.status === 'pending').map(t => (
+                  <tr key={t.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                    <td className="p-4 truncate max-w-[150px] font-medium text-slate-500">{t.user_id}</td>
                     <td className="p-4">
-                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${t.status === 'pending' ? 'bg-amber-100 text-amber-600' : t.status === 'success' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
-                            {t.status}
-                        </span>
+                        <div className="font-bold text-slate-800">{t.bank_name || 'Không rõ NH'}</div>
+                        <div className="text-slate-500">{t.bank_account || 'Không có STK'}</div>
                     </td>
-                    <td className="p-4 flex gap-2">
-                      {t.status === 'pending' && t.type === 'rut_tien' && (
-                        <>
-                          <button onClick={() => handleApproveWithdrawal(t)} className="p-1.5 bg-emerald-100 text-emerald-600 rounded-lg hover:bg-emerald-200">
-                              <Check className="w-4 h-4" />
+                    <td className="p-4 font-extrabold text-rose-600 text-base">{t.amount?.toLocaleString('vi-VN')} ₫</td>
+                    <td className="p-4">
+                      <div className="flex justify-center gap-2">
+                          <button onClick={() => handleApproveWithdrawal(t)} title="Duyệt thành công" className="flex items-center gap-1 px-3 py-2 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 font-bold transition-colors">
+                              <Check className="w-4 h-4" /> Duyệt
                           </button>
-                          <button onClick={() => handleRejectWithdrawal(t.id)} className="p-1.5 bg-rose-100 text-rose-600 rounded-lg hover:bg-rose-200">
-                              <X className="w-4 h-4" />
+                          <button onClick={() => handleRejectWithdrawal(t.id)} title="Từ chối lệnh" className="flex items-center gap-1 px-3 py-2 bg-rose-100 text-rose-700 rounded-lg hover:bg-rose-200 font-bold transition-colors">
+                              <X className="w-4 h-4" /> Từ chối
                           </button>
-                        </>
-                      )}
+                          <button onClick={() => handleSuspendWithdrawal(t.id)} title="Treo lệnh (Ẩn đi)" className="flex items-center gap-1 px-3 py-2 bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 font-bold transition-colors">
+                              <EyeOff className="w-4 h-4" /> Treo
+                          </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -244,26 +298,62 @@ export default function AdminDashboard() {
             </table>
           )}
 
-          {/* TAB: ALL TRANSACTIONS */}
-          {activeTab === 'transactions' && (
+          {/* TAB: DEPOSIT HISTORY */}
+          {activeTab === 'deposits' && (
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
-                  <th className="p-4 font-semibold">ID Giao dịch</th>
                   <th className="p-4 font-semibold">User ID</th>
-                  <th className="p-4 font-semibold">Loại</th>
-                  <th className="p-4 font-semibold">Số tiền (VNĐ)</th>
+                  <th className="p-4 font-semibold text-blue-600">Số tiền nạp (VNĐ)</th>
                   <th className="p-4 font-semibold">Thời gian</th>
+                  <th className="p-4 font-semibold">Trạng thái</th>
                 </tr>
               </thead>
               <tbody className="text-sm">
-                {transactions.map(t => (
+                {transactions.filter(t => t.type === 'nap_tien').map(t => (
                   <tr key={t.id} className="border-b border-slate-100 hover:bg-slate-50">
-                    <td className="p-4 truncate max-w-[100px] text-slate-400">{t.id}</td>
-                    <td className="p-4 truncate max-w-[150px]">{t.user_id}</td>
-                    <td className="p-4 uppercase">{t.type}</td>
-                    <td className="p-4 font-bold">{t.amount?.toLocaleString('vi-VN')}</td>
+                    <td className="p-4 truncate max-w-[200px] text-slate-500">{t.user_id}</td>
+                    <td className="p-4 font-bold text-blue-600">+{t.amount?.toLocaleString('vi-VN')} ₫</td>
                     <td className="p-4 text-slate-500">{new Date(t.created_at).toLocaleString('vi-VN')}</td>
+                    <td className="p-4">
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${t.status === 'success' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>
+                            {t.status === 'success' ? 'Thành công' : t.status}
+                        </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {/* TAB: WITHDRAWAL HISTORY (Đã xử lý) */}
+          {activeTab === 'withdrawals' && (
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
+                  <th className="p-4 font-semibold">User ID</th>
+                  <th className="p-4 font-semibold">Thông tin Nhận</th>
+                  <th className="p-4 font-semibold text-rose-600">Số tiền rút (VNĐ)</th>
+                  <th className="p-4 font-semibold">Trạng thái</th>
+                </tr>
+              </thead>
+              <tbody className="text-sm">
+                {transactions.filter(t => t.type === 'rut_tien' && t.status !== 'pending').map(t => (
+                  <tr key={t.id} className="border-b border-slate-100 hover:bg-slate-50">
+                    <td className="p-4 truncate max-w-[150px] text-slate-500">{t.user_id}</td>
+                    <td className="p-4">
+                        <div className="font-bold text-slate-700">{t.bank_name || '-'}</div>
+                        <div className="text-slate-500">{t.bank_account || '-'}</div>
+                    </td>
+                    <td className="p-4 font-bold text-rose-600">-{t.amount?.toLocaleString('vi-VN')} ₫</td>
+                    <td className="p-4">
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                            t.status === 'success' ? 'bg-emerald-100 text-emerald-600' : 
+                            t.status === 'rejected' ? 'bg-rose-100 text-rose-600' : 'bg-slate-200 text-slate-600'
+                        }`}>
+                            {t.status === 'success' ? 'Thành công' : t.status === 'rejected' ? 'Đã từ chối' : 'Đã Treo'}
+                        </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -273,40 +363,58 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* POPUP EDIT USER BANK */}
+      {/* POPUP: EDIT USER BANK */}
       {isEditUserOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center">
-            <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
-                <h3 className="font-bold text-lg mb-4">Sửa thông tin Ngân hàng</h3>
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl relative">
+                <button onClick={() => setIsEditUserOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700">
+                    <X className="w-6 h-6" />
+                </button>
+                <h3 className="font-bold text-xl text-slate-900 mb-6">Sửa thông tin Ngân hàng</h3>
                 <div className="mb-4">
-                    <label className="block text-sm font-medium mb-1">Tên Ngân hàng</label>
-                    <input type="text" value={newBankName} onChange={e => setNewBankName(e.target.value)} className="w-full border rounded-lg p-2" />
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Tên Ngân hàng</label>
+                    <input type="text" placeholder="VD: Vietcombank" value={newBankName} onChange={e => setNewBankName(e.target.value)} className="w-full border border-slate-200 bg-slate-50 focus:bg-white rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
                 </div>
-                <div className="mb-6">
-                    <label className="block text-sm font-medium mb-1">Số tài khoản</label>
-                    <input type="text" value={newBankAccount} onChange={e => setNewBankAccount(e.target.value)} className="w-full border rounded-lg p-2" />
+                <div className="mb-8">
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Số tài khoản</label>
+                    <input type="text" placeholder="VD: 0123456789" value={newBankAccount} onChange={e => setNewBankAccount(e.target.value)} className="w-full border border-slate-200 bg-slate-50 focus:bg-white rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
                 </div>
-                <div className="flex gap-3">
-                    <button onClick={() => setIsEditUserOpen(false)} className="flex-1 py-2 bg-slate-100 rounded-lg">Hủy</button>
-                    <button onClick={saveUserBankInfo} className="flex-1 py-2 bg-blue-600 text-white rounded-lg">Lưu</button>
-                </div>
+                <button onClick={saveUserBankInfo} className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all">Lưu Thay Đổi</button>
             </div>
         </div>
       )}
 
-      {/* POPUP EDIT PACKAGE */}
-      {isEditPackageOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center">
-            <div className="bg-white p-6 rounded-2xl w-full max-w-sm">
-                <h3 className="font-bold text-lg mb-4">Sửa Lợi nhuận: {editingPackage?.name}</h3>
-                <div className="mb-6">
-                    <label className="block text-sm font-medium mb-1">Lợi nhuận (%)</label>
-                    <input type="text" value={newReturn} onChange={e => setNewReturn(e.target.value)} className="w-full border rounded-lg p-2" />
+      {/* POPUP: ADD/EDIT PACKAGE */}
+      {isPackageModalOpen && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl relative">
+                <button onClick={() => setIsPackageModalOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700">
+                    <X className="w-6 h-6" />
+                </button>
+                <h3 className="font-bold text-xl text-slate-900 mb-6">{editingPackage ? 'Chỉnh sửa Gói' : 'Thêm Gói Mới'}</h3>
+                
+                <div className="space-y-4 mb-8">
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Tên Gói</label>
+                        <input type="text" placeholder="VD: VIP Elite" value={pkgForm.name} onChange={e => setPkgForm({...pkgForm, name: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Lợi nhuận (%)</label>
+                        <input type="text" placeholder="VD: 18%" value={pkgForm.return} onChange={e => setPkgForm({...pkgForm, return: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Hạn mức (Limits)</label>
+                        <input type="text" placeholder="VD: 200M+" value={pkgForm.limits} onChange={e => setPkgForm({...pkgForm, limits: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Thời gian (Duration)</label>
+                        <input type="text" placeholder="VD: 24 Months" value={pkgForm.duration} onChange={e => setPkgForm({...pkgForm, duration: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
                 </div>
-                <div className="flex gap-3">
-                    <button onClick={() => setIsEditPackageOpen(false)} className="flex-1 py-2 bg-slate-100 rounded-lg">Hủy</button>
-                    <button onClick={savePackageInfo} className="flex-1 py-2 bg-blue-600 text-white rounded-lg">Lưu</button>
-                </div>
+
+                <button onClick={savePackageInfo} className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all">
+                    {editingPackage ? 'Lưu Thay Đổi' : 'Tạo Gói Mới'}
+                </button>
             </div>
         </div>
       )}
