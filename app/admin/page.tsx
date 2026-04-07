@@ -3,11 +3,11 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
-  Users, Activity, CreditCard, Package, LogOut, Check, X, Edit, EyeOff, Plus, ArrowDownToLine, ArrowUpFromLine, Clock
+  Users, Activity, CreditCard, Package, LogOut, Check, X, Edit, EyeOff, Plus, ArrowDownToLine, ArrowUpFromLine, Clock, LayoutDashboard
 } from 'lucide-react';
 
 export default function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState('users');
+  const [activeTab, setActiveTab] = useState('overview');
   const [users, setUsers] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [packages, setPackages] = useState<any[]>([
@@ -137,6 +137,26 @@ export default function AdminDashboard() {
     setIsPackageModalOpen(false);
   };
 
+  // --- TÍNH TOÁN THỐNG KÊ TỔNG QUAN ---
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const overviewStats = transactions.reduce((acc, tx) => {
+      if (tx.status === 'success') {
+          const txDate = new Date(tx.created_at);
+          const isToday = txDate >= today;
+          
+          if (tx.type === 'nap_tien') {
+              acc.totalDeposits += tx.amount || 0;
+              if (isToday) acc.todayDeposits += tx.amount || 0;
+          } else if (tx.type === 'rut_tien') {
+              acc.totalWithdrawals += tx.amount || 0;
+              if (isToday) acc.todayWithdrawals += tx.amount || 0;
+          }
+      }
+      return acc;
+  }, { todayDeposits: 0, todayWithdrawals: 0, totalDeposits: 0, totalWithdrawals: 0 });
+
   if (isLoading) return <div className="min-h-screen flex items-center justify-center font-semibold text-slate-500">Đang tải dữ liệu hệ thống...</div>;
 
   return (
@@ -150,6 +170,9 @@ export default function AdminDashboard() {
         </div>
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           <p className="px-4 text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 mt-2">Quản lý chung</p>
+          <button onClick={() => setActiveTab('overview')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${activeTab === 'overview' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'hover:bg-slate-800'}`}>
+            <LayoutDashboard className="w-5 h-5" /> Tổng quan
+          </button>
           <button onClick={() => setActiveTab('users')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${activeTab === 'users' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'hover:bg-slate-800'}`}>
             <Users className="w-5 h-5" /> Khách hàng
           </button>
@@ -179,6 +202,7 @@ export default function AdminDashboard() {
       <div className="flex-1 p-8 overflow-y-auto bg-[#F5F7FB]">
         <div className="flex justify-between items-center mb-8">
             <h2 className="text-2xl font-bold text-slate-800 capitalize">
+            {activeTab === 'overview' && 'Tổng quan hệ thống'}
             {activeTab === 'users' && 'Danh sách Khách hàng'}
             {activeTab === 'packages' && 'Cấu hình Gói đầu tư'}
             {activeTab === 'approvals' && 'Yêu cầu Rút tiền đang chờ'}
@@ -193,6 +217,30 @@ export default function AdminDashboard() {
             )}
         </div>
 
+        {/* TAB: OVERVIEW */}
+        {activeTab === 'overview' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <p className="text-sm font-bold text-slate-500 uppercase">Khách Nạp Hôm Nay</p>
+                    <h3 className="text-2xl font-black text-emerald-600 mt-2">+{overviewStats.todayDeposits.toLocaleString('vi-VN')} ₫</h3>
+                </div>
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <p className="text-sm font-bold text-slate-500 uppercase">Khách Rút Hôm Nay</p>
+                    <h3 className="text-2xl font-black text-rose-600 mt-2">-{overviewStats.todayWithdrawals.toLocaleString('vi-VN')} ₫</h3>
+                </div>
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <p className="text-sm font-bold text-slate-500 uppercase">Tổng Nạp (All Time)</p>
+                    <h3 className="text-2xl font-black text-emerald-600 mt-2">+{overviewStats.totalDeposits.toLocaleString('vi-VN')} ₫</h3>
+                </div>
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <p className="text-sm font-bold text-slate-500 uppercase">Tổng Rút (All Time)</p>
+                    <h3 className="text-2xl font-black text-rose-600 mt-2">-{overviewStats.totalWithdrawals.toLocaleString('vi-VN')} ₫</h3>
+                </div>
+            </div>
+        )}
+
+        {/* TABLES AREA */}
+        {activeTab !== 'overview' && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           
           {/* TAB: USERS */}
@@ -201,6 +249,8 @@ export default function AdminDashboard() {
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
                   <th className="p-4 font-semibold">User ID / Email</th>
+                  <th className="p-4 font-semibold">Ngày tạo</th>
+                  <th className="p-4 font-semibold">Trạng thái</th>
                   <th className="p-4 font-semibold">Số dư (VNĐ)</th>
                   <th className="p-4 font-semibold">Ngân hàng</th>
                   <th className="p-4 font-semibold">Số tài khoản</th>
@@ -208,10 +258,16 @@ export default function AdminDashboard() {
                 </tr>
               </thead>
               <tbody className="text-sm">
-                {users.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-slate-500">Chưa có khách hàng nào hoặc bị chặn quyền xem.</td></tr>}
+                {users.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-slate-500">Chưa có khách hàng nào hoặc bị chặn quyền xem.</td></tr>}
                 {users.map(u => (
                   <tr key={u.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
                     <td className="p-4 truncate max-w-[200px] text-slate-600 font-medium">{u.id}</td>
+                    <td className="p-4 text-slate-600">{u.created_at ? new Date(u.created_at).toLocaleDateString('vi-VN') : '-'}</td>
+                    <td className="p-4">
+                      <span className={`px-2 py-1 rounded-full text-xs font-bold ${u.status === 'active' || !u.status ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-600'}`}>
+                         {u.status || 'Hoạt động'}
+                      </span>
+                    </td>
                     <td className="p-4 font-bold text-blue-600">{u.balance?.toLocaleString('vi-VN')} ₫</td>
                     <td className="p-4 text-slate-700">{u.bank_name || <span className="text-slate-400 italic">Chưa LK</span>}</td>
                     <td className="p-4 text-slate-700">{u.bank_account || <span className="text-slate-400 italic">Chưa LK</span>}</td>
@@ -361,6 +417,7 @@ export default function AdminDashboard() {
           )}
 
         </div>
+        )}
       </div>
 
       {/* POPUP: EDIT USER BANK */}
