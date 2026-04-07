@@ -344,7 +344,7 @@ export default function FintechDashboard() {
             </div>
           </div>
 
-        </div>
+        </div> 
       </main>
     </div>
   );
