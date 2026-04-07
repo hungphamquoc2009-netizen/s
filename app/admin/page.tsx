@@ -11,7 +11,7 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [users, setUsers] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
-  const [packages, setPackages] = useState<any[]>([]); // Đã chuyển thành mảng rỗng
+  const [packages, setPackages] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // States cho Popup Sửa/Thêm Khách hàng & Gói
@@ -22,7 +22,7 @@ export default function AdminDashboard() {
 
   const [isPackageModalOpen, setIsPackageModalOpen] = useState(false);
   const [editingPackage, setEditingPackage] = useState<any>(null);
-  const [pkgForm, setPkgForm] = useState({ name: '', return_rate: '', limits: '', duration: '' }); // Đã đổi return thành return_rate
+  const [pkgForm, setPkgForm] = useState({ name: '', return_rate: '', limits: '', duration: '' });
 
   // States cho Tab Users (Sắp xếp, Tìm kiếm và Dropdown)
   const [sortConfig, setSortConfig] = useState<{ key: 'totalDeposit' | 'totalWithdrawal', direction: 'asc' | 'desc' } | null>(null);
@@ -63,7 +63,40 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
+    // 1. Tải dữ liệu lần đầu khi mở trang
     loadData();
+
+    // 2. Thiết lập Realtime lắng nghe thay đổi từ Database
+    const profileSubscription = supabase
+        .channel('public-profiles-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, (payload) => {
+            console.log('Có thay đổi ở Profiles!', payload);
+            loadData(); // Tự động load lại danh sách khi có khách mới/sửa số dư
+        })
+        .subscribe();
+
+    const transactionSubscription = supabase
+        .channel('public-transactions-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, (payload) => {
+            console.log('Có thay đổi ở Transactions!', payload);
+            loadData(); // Tự động load lại khi có lệnh nạp/rút mới
+        })
+        .subscribe();
+
+    const packageSubscription = supabase
+        .channel('public-packages-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'packages' }, (payload) => {
+            console.log('Có thay đổi ở Packages!', payload);
+            loadData(); // Tự động load lại khi có thêm/sửa/xóa gói
+        })
+        .subscribe();
+
+    // Dọn dẹp kết nối khi rời khỏi trang
+    return () => {
+        supabase.removeChannel(profileSubscription);
+        supabase.removeChannel(transactionSubscription);
+        supabase.removeChannel(packageSubscription);
+    };
   }, []);
 
   const handleLogout = async () => {
@@ -82,22 +115,19 @@ export default function AdminDashboard() {
     }
     await supabase.from('transactions').update({ status: 'success' }).eq('id', tx.id);
     alert('Đã duyệt thành công!');
-    loadData();
+    // Không cần gọi loadData() thủ công nữa vì Realtime sẽ tự bắt sự kiện và load lại
   };
 
   const handleRejectWithdrawal = async (id: string) => {
     if (!confirm('Bạn có chắc chắn muốn TỪ CHỐI lệnh rút này?')) return;
     await supabase.from('transactions').update({ status: 'rejected' }).eq('id', id);
     alert('Đã từ chối lệnh rút!');
-    loadData();
   };
 
   const handleSuspendWithdrawal = async (id: string) => {
     if (!confirm('Bạn có chắc muốn TREO lệnh này? (Lệnh sẽ bị ẩn khỏi danh sách chờ nhưng khách không biết)')) return;
-    // Chuyển status thành 'treo' để lọc ẩn đi ở trang admin
     await supabase.from('transactions').update({ status: 'treo' }).eq('id', id);
     alert('Đã đưa lệnh rút vào trạng thái treo!');
-    loadData();
   };
 
   // --- LOGIC SỬA TÀI KHOẢN KHÁCH HÀNG ---
@@ -115,7 +145,6 @@ export default function AdminDashboard() {
     }).eq('id', editingUser.id);
     alert('Cập nhật thông tin ngân hàng thành công!');
     setIsEditUserOpen(false);
-    loadData();
   };
 
   // --- LOGIC THÊM & SỬA GÓI ĐẦU TƯ ---
@@ -133,7 +162,6 @@ export default function AdminDashboard() {
 
   const savePackageInfo = async () => {
     if (editingPackage) {
-        // Cập nhật gói cũ trên Supabase
         const { error } = await supabase.from('packages').update({
             name: pkgForm.name,
             return_rate: pkgForm.return_rate,
@@ -147,7 +175,6 @@ export default function AdminDashboard() {
         }
         alert('Cập nhật chi tiết gói thành công!');
     } else {
-        // Thêm gói mới vào Supabase
         const { error } = await supabase.from('packages').insert([
             {
                 name: pkgForm.name,
@@ -164,19 +191,16 @@ export default function AdminDashboard() {
         alert('Đã thêm gói đầu tư mới!');
     }
     setIsPackageModalOpen(false);
-    loadData(); // Tải lại danh sách sau khi lưu
   };
 
   const handleDeletePackage = async (id: string) => {
     if (confirm('Bạn có chắc chắn muốn xóa gói đầu tư này không?')) {
-        // Xóa gói khỏi Supabase
         const { error } = await supabase.from('packages').delete().eq('id', id);
         if (error) {
             alert('Lỗi xóa gói: ' + error.message);
             return;
         }
         alert('Đã xóa gói đầu tư!');
-        loadData(); // Tải lại danh sách sau khi xóa
     }
   };
 
@@ -239,7 +263,7 @@ export default function AdminDashboard() {
       });
   }
 
-  if (isLoading) return <div className="min-h-screen flex items-center justify-center font-semibold text-slate-500">Đang tải dữ liệu hệ thống...</div>;
+  if (isLoading && users.length === 0) return <div className="min-h-screen flex items-center justify-center font-semibold text-slate-500">Đang tải dữ liệu hệ thống...</div>;
 
   return (
     <div className="min-h-screen bg-slate-50 flex font-sans">
