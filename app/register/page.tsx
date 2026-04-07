@@ -3,8 +3,10 @@
 import React, { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Activity } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 export default function RegisterPage() {
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -41,10 +43,8 @@ export default function RegisterPage() {
 
       setMessage('Đăng ký thành công! Bạn được tặng 30,000 VNĐ vào tài khoản.');
       
-      // Tự động chuyển hướng về trang chủ sau 2 giây
-      setTimeout(() => {
-          window.location.href = '/';
-      }, 2000);
+      // Chuyển hướng thẳng vào trang Dashboard ngay lập tức
+      router.push('/dashboard');
 
     } catch (error: any) {
       setMessage(error.message || 'Có lỗi xảy ra khi đăng ký.');
