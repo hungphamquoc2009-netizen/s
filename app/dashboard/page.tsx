@@ -11,7 +11,7 @@ import {
 } from 'recharts';
 import { supabase } from '@/lib/supabase'; 
 
-// --- MOCK DATA ---
+// --- MOCK DATA (Chỉ giữ lại data biểu đồ) ---
 const chartData = [
   { name: 'Jan', actual: 120, expected: 130 },
   { name: 'Feb', actual: 135, expected: 138 },
@@ -21,28 +21,12 @@ const chartData = [
   { name: 'Jun', actual: 175, expected: 168 },
 ];
 
-const activeInvestments = [
-  { name: 'Premium Growth', amount: '50,000,000 VND', progress: 75, timeLeft: '3 months', return: '+12%' },
-  { name: 'Stable Income', amount: '20,000,000 VND', progress: 40, timeLeft: '6 months', return: '+8%' },
-];
-
-const availablePackages = [
-  { name: 'Basic', return: '8%', limits: '5M - 50M', duration: '6 Months', features: ['Stable returns', 'Flexible withdrawal', 'Standard support'], highlight: false },
-  { name: 'Advanced', return: '12%', limits: '50M - 200M', duration: '12 Months', features: ['High growth potential', 'Monthly payouts', 'Priority support'], highlight: true },
-  { name: 'VIP Elite', return: '18%', limits: '200M+', duration: '24 Months', features: ['Maximum yield', 'Daily payouts', 'Dedicated manager'], highlight: false },
-];
-
-const notifications = [
-  { id: 1, type: 'success', text: 'Dividend payout received', time: '2 hours ago', icon: CheckCircle2, color: 'text-emerald-500' },
-  { id: 2, type: 'info', text: 'New investment opportunities', time: '5 hours ago', icon: Info, color: 'text-blue-500' },
-  { id: 3, type: 'warning', text: 'Security login from new device', time: '1 day ago', icon: AlertTriangle, color: 'text-amber-500' },
-];
-
 export default function FintechDashboard() {
   const [userName, setUserName] = useState<string>('Đang tải...');
   const [userId, setUserId] = useState<string>('');
   const [balance, setBalance] = useState<number>(0);
   const [txHistory, setTxHistory] = useState<any[]>([]);
+  const [packages, setPackages] = useState<any[]>([]); // Đã thêm state lưu gói đầu tư thật
   
   // States kiểm tra điều kiện rút tiền
   const [bankAccount, setBankAccount] = useState<string | null>(null);
@@ -54,7 +38,7 @@ export default function FintechDashboard() {
   const [amount, setAmount] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Load User & Balance
+  // Load User, Balance, Lịch sử và Các gói đầu tư
   useEffect(() => {
     const loadData = async () => {
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
@@ -68,7 +52,7 @@ export default function FintechDashboard() {
       setUserName(email.split('@')[0]);
       setUserId(session.user.id);
 
-      // Lấy thông tin user (Số dư, TK ngân hàng, Trạng thái gói)
+      // 1. Lấy thông tin user (Số dư thật, TK ngân hàng, Trạng thái gói)
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('balance, bank_account, bank_name, has_purchased_package')
@@ -84,7 +68,7 @@ export default function FintechDashboard() {
           setBalance(0);
       }
 
-      // Lấy lịch sử giao dịch (Hiển thị 3 cái gần nhất)
+      // 2. Lấy lịch sử giao dịch (Hiển thị 3 cái gần nhất)
       const { data: txs, error: txError } = await supabase
         .from('transactions')
         .select('*')
@@ -94,6 +78,16 @@ export default function FintechDashboard() {
         
       if (txs && !txError) {
           setTxHistory(txs);
+      }
+
+      // 3. Lấy danh sách Gói Đầu Tư thật từ Supabase
+      const { data: pkgs, error: pkgsError } = await supabase
+        .from('packages')
+        .select('*')
+        .order('created_at', { ascending: true });
+
+      if (pkgs && !pkgsError) {
+          setPackages(pkgs);
       }
     };
     loadData();
@@ -148,13 +142,6 @@ export default function FintechDashboard() {
           bank_account: bankAccount,
           bank_name: bankName
       });
-
-      // 2. NƠI GỌI API BANK CỦA BẠN (VD: Bắn lệnh chuyển tiền tự động ra tài khoản khách)
-      /* await fetch('https://api.bank.com/transfer', {
-          method: 'POST',
-          body: JSON.stringify({ amount: numAmount, bank_code: bankName, account_number: bankAccount })
-      });
-      */
 
       alert(`Yêu cầu rút ${numAmount.toLocaleString('vi-VN')} VNĐ đã được gửi. Chờ xử lý!`);
       setIsProcessing(false);
@@ -286,67 +273,54 @@ export default function FintechDashboard() {
             </div>
           </div>
 
-          {/* Available Packages */}
+          {/* Available Packages (Dữ liệu thật từ DB) */}
           <div>
             <h3 className="font-bold text-lg text-slate-800 mb-4">Available Packages</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {availablePackages.map((pkg, idx) => (
-                <div key={idx} className={`bg-white rounded-2xl p-6 shadow-sm border transition-all duration-300 hover:shadow-xl ${pkg.highlight ? 'border-[#1E6EFF] ring-2 ring-[#1E6EFF]/20 md:-translate-y-2 relative' : 'border-slate-100 hover:-translate-y-1'}`}>
-                  {pkg.highlight && (
-                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#1E6EFF] text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">Most Popular</span>
-                  )}
-                  <h4 className="text-slate-500 font-medium">{pkg.name}</h4>
-                  <div className="my-4">
-                    <span className="text-4xl font-extrabold text-slate-900">{pkg.return}</span>
-                    <span className="text-slate-500 font-medium">/yr</span>
-                  </div>
-                  <div className="space-y-3 mb-6 text-sm">
-                    <div className="flex justify-between border-b border-slate-50 pb-2">
-                      <span className="text-slate-500">Limits</span>
-                      <span className="font-bold text-slate-800">{pkg.limits}</span>
+              {packages.map((pkg, idx) => {
+                // Đảm bảo không vỡ UI bằng cách chèn tính năng cơ bản mặc định
+                const defaultFeatures = ['Lợi nhuận ổn định', 'Rút tiền linh hoạt', 'Hỗ trợ tiêu chuẩn'];
+                const isHighlight = idx === 1; // Highlight gói ở giữa cho đẹp
+
+                return (
+                  <div key={pkg.id || idx} className={`bg-white rounded-2xl p-6 shadow-sm border transition-all duration-300 hover:shadow-xl ${isHighlight ? 'border-[#1E6EFF] ring-2 ring-[#1E6EFF]/20 md:-translate-y-2 relative' : 'border-slate-100 hover:-translate-y-1'}`}>
+                    {isHighlight && (
+                      <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#1E6EFF] text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">Most Popular</span>
+                    )}
+                    <h4 className="text-slate-500 font-medium">{pkg.name}</h4>
+                    <div className="my-4">
+                      <span className="text-4xl font-extrabold text-slate-900">{pkg.return_rate}</span>
+                      <span className="text-slate-500 font-medium">/yr</span>
                     </div>
-                    <ul className="space-y-2 mt-4">
-                      {pkg.features.map((feature, fIdx) => (
-                        <li key={fIdx} className="flex items-center gap-2 text-slate-600">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                          <span>{feature}</span>
-                        </li>
-                      ))}
-                    </ul>
+                    <div className="space-y-3 mb-6 text-sm">
+                      <div className="flex justify-between border-b border-slate-50 pb-2">
+                        <span className="text-slate-500">Limits</span>
+                        <span className="font-bold text-slate-800">{pkg.limits}</span>
+                      </div>
+                      <ul className="space-y-2 mt-4">
+                        {defaultFeatures.map((feature, fIdx) => (
+                          <li key={fIdx} className="flex items-center gap-2 text-slate-600">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                            <span>{feature}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <button 
+                      onClick={() => handlePaymentRedirect(pkg.name)}
+                      className={`w-full py-3 rounded-xl font-bold transition-all ${isHighlight ? 'bg-[#1E6EFF] text-white hover:bg-blue-600' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                    >
+                      Thanh toán
+                    </button>
                   </div>
-                  <button 
-                    onClick={() => handlePaymentRedirect(pkg.name)}
-                    className={`w-full py-3 rounded-xl font-bold transition-all ${pkg.highlight ? 'bg-[#1E6EFF] text-white hover:bg-blue-600' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
-                  >
-                    Thanh toán
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
 
         {/* RIGHT COLUMN */}
         <div className="xl:col-span-4 space-y-6">
-          
-          {/* Notifications */}
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-            <h3 className="font-bold text-lg text-slate-800 mb-4">Notifications</h3>
-            <div className="space-y-4">
-              {notifications.map((notif) => {
-                const Icon = notif.icon;
-                return (
-                  <div key={notif.id} className="flex gap-3 items-start">
-                    <div className={`mt-0.5 ${notif.color}`}><Icon className="w-5 h-5" /></div>
-                    <div>
-                      <p className="text-sm font-medium text-slate-800">{notif.text}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">{notif.time}</p>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
 
           {/* Recent Transactions (Lịch sử thật) */}
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
