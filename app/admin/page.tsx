@@ -11,11 +11,7 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [users, setUsers] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
-  const [packages, setPackages] = useState<any[]>([
-    { id: 1, name: 'Basic', return: '8%', limits: '5M - 50M', duration: '6 Months' },
-    { id: 2, name: 'Advanced', return: '12%', limits: '50M - 200M', duration: '12 Months' },
-    { id: 3, name: 'VIP Elite', return: '18%', limits: '200M+', duration: '24 Months' }
-  ]);
+  const [packages, setPackages] = useState<any[]>([]); // Đã chuyển thành mảng rỗng
   const [isLoading, setIsLoading] = useState(true);
 
   // States cho Popup Sửa/Thêm Khách hàng & Gói
@@ -26,7 +22,7 @@ export default function AdminDashboard() {
 
   const [isPackageModalOpen, setIsPackageModalOpen] = useState(false);
   const [editingPackage, setEditingPackage] = useState<any>(null);
-  const [pkgForm, setPkgForm] = useState({ name: '', return: '', limits: '', duration: '' });
+  const [pkgForm, setPkgForm] = useState({ name: '', return_rate: '', limits: '', duration: '' }); // Đã đổi return thành return_rate
 
   // States cho Tab Users (Sắp xếp, Tìm kiếm và Dropdown)
   const [sortConfig, setSortConfig] = useState<{ key: 'totalDeposit' | 'totalWithdrawal', direction: 'asc' | 'desc' } | null>(null);
@@ -50,6 +46,14 @@ export default function AdminDashboard() {
             console.error("Lỗi lấy giao dịch:", txError);
         } else if (txs) {
             setTransactions(txs);
+        }
+
+        // Lấy danh sách gói đầu tư từ bảng packages
+        const { data: pkgs, error: pkgsError } = await supabase.from('packages').select('*').order('created_at', { ascending: true });
+        if (pkgsError) {
+            console.error("Lỗi lấy danh sách gói:", pkgsError);
+        } else if (pkgs) {
+            setPackages(pkgs);
         }
     } catch (err) {
         console.error("Lỗi hệ thống:", err);
@@ -117,37 +121,62 @@ export default function AdminDashboard() {
   // --- LOGIC THÊM & SỬA GÓI ĐẦU TƯ ---
   const openAddPackage = () => {
     setEditingPackage(null);
-    setPkgForm({ name: '', return: '', limits: '', duration: '' });
+    setPkgForm({ name: '', return_rate: '', limits: '', duration: '' });
     setIsPackageModalOpen(true);
   };
 
   const openEditPackage = (pkg: any) => {
     setEditingPackage(pkg);
-    setPkgForm({ name: pkg.name, return: pkg.return, limits: pkg.limits, duration: pkg.duration });
+    setPkgForm({ name: pkg.name, return_rate: pkg.return_rate, limits: pkg.limits, duration: pkg.duration });
     setIsPackageModalOpen(true);
   };
 
-  const savePackageInfo = () => {
+  const savePackageInfo = async () => {
     if (editingPackage) {
-        // Cập nhật gói cũ
-        const updated = packages.map(p => p.id === editingPackage.id ? { ...p, ...pkgForm } : p);
-        setPackages(updated);
+        // Cập nhật gói cũ trên Supabase
+        const { error } = await supabase.from('packages').update({
+            name: pkgForm.name,
+            return_rate: pkgForm.return_rate,
+            limits: pkgForm.limits,
+            duration: pkgForm.duration
+        }).eq('id', editingPackage.id);
+
+        if (error) {
+            alert('Lỗi cập nhật gói: ' + error.message);
+            return;
+        }
         alert('Cập nhật chi tiết gói thành công!');
     } else {
-        // Thêm gói mới
-        const newPkg = { id: Date.now(), ...pkgForm };
-        setPackages([...packages, newPkg]);
+        // Thêm gói mới vào Supabase
+        const { error } = await supabase.from('packages').insert([
+            {
+                name: pkgForm.name,
+                return_rate: pkgForm.return_rate,
+                limits: pkgForm.limits,
+                duration: pkgForm.duration
+            }
+        ]);
+
+        if (error) {
+            alert('Lỗi thêm gói: ' + error.message);
+            return;
+        }
         alert('Đã thêm gói đầu tư mới!');
     }
-    // Nếu có DB packages thật, hãy thêm logic supabase.from('packages').upsert(...) ở đây
     setIsPackageModalOpen(false);
+    loadData(); // Tải lại danh sách sau khi lưu
   };
 
-  const handleDeletePackage = (id: number) => {
+  const handleDeletePackage = async (id: string) => {
     if (confirm('Bạn có chắc chắn muốn xóa gói đầu tư này không?')) {
-        const updatedPackages = packages.filter(p => p.id !== id);
-        setPackages(updatedPackages);
+        // Xóa gói khỏi Supabase
+        const { error } = await supabase.from('packages').delete().eq('id', id);
+        if (error) {
+            alert('Lỗi xóa gói: ' + error.message);
+            return;
+        }
         alert('Đã xóa gói đầu tư!');
+        loadData(); // Tải lại danh sách sau khi xóa
     }
   };
 
@@ -402,10 +431,11 @@ export default function AdminDashboard() {
                 </tr>
               </thead>
               <tbody className="text-sm">
+                {packages.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-slate-500">Chưa có gói đầu tư nào.</td></tr>}
                 {packages.map(p => (
                   <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
                     <td className="p-4 font-bold text-slate-800">{p.name}</td>
-                    <td className="p-4 font-bold text-emerald-500">{p.return}</td>
+                    <td className="p-4 font-bold text-emerald-500">{p.return_rate}</td>
                     <td className="p-4 text-slate-600 font-medium">{p.limits}</td>
                     <td className="p-4 text-slate-600">{p.duration}</td>
                     <td className="p-4 text-center">
@@ -569,7 +599,7 @@ export default function AdminDashboard() {
                     </div>
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-2">Lợi nhuận (%)</label>
-                        <input type="text" placeholder="VD: 18%" value={pkgForm.return} onChange={e => setPkgForm({...pkgForm, return: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        <input type="text" placeholder="VD: 18%" value={pkgForm.return_rate} onChange={e => setPkgForm({...pkgForm, return_rate: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     </div>
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-2">Mức giá</label>
