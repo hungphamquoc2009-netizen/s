@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
   Users, Activity, CreditCard, Package, LogOut, Check, X, Edit, EyeOff, Plus, ArrowDownToLine, ArrowUpFromLine, Clock, LayoutDashboard,
-  MoreVertical, ChevronUp, ChevronDown, Gift
+  MoreVertical, ChevronUp, ChevronDown, Gift, Trash2
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -140,6 +140,14 @@ export default function AdminDashboard() {
     }
     // Nếu có DB packages thật, hãy thêm logic supabase.from('packages').upsert(...) ở đây
     setIsPackageModalOpen(false);
+  };
+
+  const handleDeletePackage = (id: number) => {
+    if (confirm('Bạn có chắc chắn muốn xóa gói đầu tư này không?')) {
+        const updatedPackages = packages.filter(p => p.id !== id);
+        setPackages(updatedPackages);
+        alert('Đã xóa gói đầu tư!');
+    }
   };
 
   // --- TÍNH TOÁN THỐNG KÊ TỔNG QUAN ---
@@ -282,7 +290,7 @@ export default function AdminDashboard() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
-                  <th className="p-4 font-semibold">Email / Tài khoản</th>
+                  <th className="p-4 font-semibold">Email đăng ký</th>
                   <th className="p-4 font-semibold text-center">Phân loại</th>
                   <th className="p-4 font-semibold">
                       <button onClick={() => handleSort('totalDeposit')} className="flex items-center gap-1 hover:text-blue-600 transition-colors">
@@ -361,7 +369,7 @@ export default function AdminDashboard() {
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
                   <th className="p-4 font-semibold">Tên gói</th>
                   <th className="p-4 font-semibold">Lợi nhuận</th>
-                  <th className="p-4 font-semibold">Hạn mức</th>
+                  <th className="p-4 font-semibold">Mức giá</th>
                   <th className="p-4 font-semibold">Thời gian</th>
                   <th className="p-4 font-semibold text-center">Hành động</th>
                 </tr>
@@ -374,9 +382,14 @@ export default function AdminDashboard() {
                     <td className="p-4 text-slate-600 font-medium">{p.limits}</td>
                     <td className="p-4 text-slate-600">{p.duration}</td>
                     <td className="p-4 text-center">
-                      <button onClick={() => openEditPackage(p)} className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 font-medium transition-colors">
-                        <Edit className="w-4 h-4" /> Chỉnh sửa
-                      </button>
+                      <div className="flex justify-center gap-2">
+                          <button onClick={() => openEditPackage(p)} className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 font-medium transition-colors">
+                            <Edit className="w-4 h-4" /> Chỉnh sửa
+                          </button>
+                          <button onClick={() => handleDeletePackage(p.id)} className="inline-flex items-center gap-1 px-3 py-1.5 bg-rose-50 text-rose-600 rounded-lg hover:bg-rose-100 font-medium transition-colors">
+                            <Trash2 className="w-4 h-4" /> Xóa
+                          </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -532,7 +545,7 @@ export default function AdminDashboard() {
                         <input type="text" placeholder="VD: 18%" value={pkgForm.return} onChange={e => setPkgForm({...pkgForm, return: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     </div>
                     <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-2">Hạn mức (Limits)</label>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Mức giá</label>
                         <input type="text" placeholder="VD: 200M+" value={pkgForm.limits} onChange={e => setPkgForm({...pkgForm, limits: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     </div>
                     <div>
