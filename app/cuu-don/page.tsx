@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { ShieldAlert, CheckCircle2, Loader2, User, Package, Banknote, Search, AlertCircle } from 'lucide-react';
+// ĐÃ THÊM 'Info' VÀO DÒNG IMPORT DƯỚI ĐÂY:
+import { ShieldAlert, CheckCircle2, Loader2, User, Package, Banknote, Search, AlertCircle, Info } from 'lucide-react';
 
 export default function CuuDonPage() {
   const [searchTerm, setSearchTerm] = useState('');
