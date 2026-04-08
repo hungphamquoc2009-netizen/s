@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
   Users, Activity, CreditCard, Package, LogOut, Check, X, Edit, EyeOff, Plus, ArrowDownToLine, ArrowUpFromLine, Clock, LayoutDashboard,
-  MoreVertical, ChevronUp, ChevronDown, Gift, Trash2, Search
+  MoreVertical, ChevronUp, ChevronDown, Gift, Trash2, Search, Calendar, Trophy, Settings as SettingsIcon
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -13,6 +13,11 @@ export default function AdminDashboard() {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [packages, setPackages] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // --- NEW STATES CỦA NỘI DUNG & CẤU HÌNH ---
+  const [events, setEvents] = useState<any[]>([]);
+  const [leaderboards, setLeaderboards] = useState<any[]>([]);
+  const [cskhLink, setCskhLink] = useState('');
 
   // States cho Popup Sửa/Thêm Khách hàng & Gói
   const [isEditUserOpen, setIsEditUserOpen] = useState(false);
@@ -24,6 +29,15 @@ export default function AdminDashboard() {
   const [editingPackage, setEditingPackage] = useState<any>(null);
   const [pkgForm, setPkgForm] = useState({ name: '', return_rate: '', limits: '', duration: '' });
 
+  // --- NEW MODAL STATES ---
+  const [isEventModalOpen, setIsEventModalOpen] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<any>(null);
+  const [eventForm, setEventForm] = useState({ title: '', content: '', date: '', status: 'active' });
+
+  const [isLbModalOpen, setIsLbModalOpen] = useState(false);
+  const [editingLb, setEditingLb] = useState<any>(null);
+  const [lbForm, setLbForm] = useState({ name: '', invites: 0, reward: '' });
+
   // States cho Tab Users (Sắp xếp, Tìm kiếm và Dropdown)
   const [sortConfig, setSortConfig] = useState<{ key: 'totalDeposit' | 'totalWithdrawal', direction: 'asc' | 'desc' } | null>(null);
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
@@ -32,29 +46,33 @@ export default function AdminDashboard() {
   const loadData = async () => {
     setIsLoading(true);
     try {
-        // Lấy danh sách user (Đảm bảo RLS trên Supabase cho phép)
+        // Lấy danh sách user
         const { data: profiles, error: profileError } = await supabase.from('profiles').select('*');
-        if (profileError) {
-            console.error("Lỗi lấy danh sách user:", profileError);
-        } else if (profiles) {
-            setUsers(profiles);
-        }
+        if (profileError) console.error("Lỗi lấy danh sách user:", profileError);
+        else if (profiles) setUsers(profiles);
 
         // Lấy lịch sử giao dịch
         const { data: txs, error: txError } = await supabase.from('transactions').select('*').order('created_at', { ascending: false });
-        if (txError) {
-            console.error("Lỗi lấy giao dịch:", txError);
-        } else if (txs) {
-            setTransactions(txs);
-        }
+        if (txError) console.error("Lỗi lấy giao dịch:", txError);
+        else if (txs) setTransactions(txs);
 
-        // Lấy danh sách gói đầu tư từ bảng packages
+        // Lấy danh sách gói đầu tư
         const { data: pkgs, error: pkgsError } = await supabase.from('packages').select('*').order('created_at', { ascending: true });
-        if (pkgsError) {
-            console.error("Lỗi lấy danh sách gói:", pkgsError);
-        } else if (pkgs) {
-            setPackages(pkgs);
-        }
+        if (pkgsError) console.error("Lỗi lấy danh sách gói:", pkgsError);
+        else if (pkgs) setPackages(pkgs);
+
+        // Lấy danh sách sự kiện
+        const { data: evts } = await supabase.from('events').select('*').order('created_at', { ascending: false });
+        if (evts) setEvents(evts);
+
+        // Lấy danh sách đua top
+        const { data: lbs } = await supabase.from('leaderboards').select('*').order('invites', { ascending: false });
+        if (lbs) setLeaderboards(lbs);
+
+        // Lấy cấu hình CSKH
+        const { data: settings } = await supabase.from('settings').select('*').limit(1).single();
+        if (settings) setCskhLink(settings.cskh_link);
+
     } catch (err) {
         console.error("Lỗi hệ thống:", err);
     } finally {
@@ -67,35 +85,28 @@ export default function AdminDashboard() {
     loadData();
 
     // 2. Thiết lập Realtime lắng nghe thay đổi từ Database
-    const profileSubscription = supabase
-        .channel('public-profiles-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, (payload) => {
-            console.log('Có thay đổi ở Profiles!', payload);
-            loadData(); // Tự động load lại danh sách khi có khách mới/sửa số dư
-        })
-        .subscribe();
+    const profileSubscription = supabase.channel('public-profiles-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => loadData()).subscribe();
 
-    const transactionSubscription = supabase
-        .channel('public-transactions-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, (payload) => {
-            console.log('Có thay đổi ở Transactions!', payload);
-            loadData(); // Tự động load lại khi có lệnh nạp/rút mới
-        })
-        .subscribe();
+    const transactionSubscription = supabase.channel('public-transactions-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => loadData()).subscribe();
 
-    const packageSubscription = supabase
-        .channel('public-packages-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'packages' }, (payload) => {
-            console.log('Có thay đổi ở Packages!', payload);
-            loadData(); // Tự động load lại khi có thêm/sửa/xóa gói
-        })
-        .subscribe();
+    const packageSubscription = supabase.channel('public-packages-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'packages' }, () => loadData()).subscribe();
+
+    const eventSubscription = supabase.channel('public-events-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => loadData()).subscribe();
+
+    const lbSubscription = supabase.channel('public-leaderboards-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'leaderboards' }, () => loadData()).subscribe();
 
     // Dọn dẹp kết nối khi rời khỏi trang
     return () => {
         supabase.removeChannel(profileSubscription);
         supabase.removeChannel(transactionSubscription);
         supabase.removeChannel(packageSubscription);
+        supabase.removeChannel(eventSubscription);
+        supabase.removeChannel(lbSubscription);
     };
   }, []);
 
@@ -115,7 +126,6 @@ export default function AdminDashboard() {
     }
     await supabase.from('transactions').update({ status: 'success' }).eq('id', tx.id);
     alert('Đã duyệt thành công!');
-    // Không cần gọi loadData() thủ công nữa vì Realtime sẽ tự bắt sự kiện và load lại
   };
 
   const handleRejectWithdrawal = async (id: string) => {
@@ -162,32 +172,12 @@ export default function AdminDashboard() {
 
   const savePackageInfo = async () => {
     if (editingPackage) {
-        const { error } = await supabase.from('packages').update({
-            name: pkgForm.name,
-            return_rate: pkgForm.return_rate,
-            limits: pkgForm.limits,
-            duration: pkgForm.duration
-        }).eq('id', editingPackage.id);
-
-        if (error) {
-            alert('Lỗi cập nhật gói: ' + error.message);
-            return;
-        }
+        const { error } = await supabase.from('packages').update(pkgForm).eq('id', editingPackage.id);
+        if (error) return alert('Lỗi cập nhật gói: ' + error.message);
         alert('Cập nhật chi tiết gói thành công!');
     } else {
-        const { error } = await supabase.from('packages').insert([
-            {
-                name: pkgForm.name,
-                return_rate: pkgForm.return_rate,
-                limits: pkgForm.limits,
-                duration: pkgForm.duration
-            }
-        ]);
-
-        if (error) {
-            alert('Lỗi thêm gói: ' + error.message);
-            return;
-        }
+        const { error } = await supabase.from('packages').insert([pkgForm]);
+        if (error) return alert('Lỗi thêm gói: ' + error.message);
         alert('Đã thêm gói đầu tư mới!');
     }
     setIsPackageModalOpen(false);
@@ -196,12 +186,87 @@ export default function AdminDashboard() {
   const handleDeletePackage = async (id: string) => {
     if (confirm('Bạn có chắc chắn muốn xóa gói đầu tư này không?')) {
         const { error } = await supabase.from('packages').delete().eq('id', id);
-        if (error) {
-            alert('Lỗi xóa gói: ' + error.message);
-            return;
-        }
+        if (error) return alert('Lỗi xóa gói: ' + error.message);
         alert('Đã xóa gói đầu tư!');
     }
+  };
+
+  // --- LOGIC QUẢN LÝ SỰ KIỆN ---
+  const openAddEvent = () => {
+    setEditingEvent(null);
+    setEventForm({ title: '', content: '', date: '', status: 'active' });
+    setIsEventModalOpen(true);
+  };
+
+  const openEditEvent = (evt: any) => {
+    setEditingEvent(evt);
+    setEventForm({ title: evt.title, content: evt.content, date: evt.date, status: evt.status });
+    setIsEventModalOpen(true);
+  };
+
+  const saveEventInfo = async () => {
+    if (editingEvent) {
+        const { error } = await supabase.from('events').update(eventForm).eq('id', editingEvent.id);
+        if (error) return alert('Lỗi cập nhật sự kiện: ' + error.message);
+        alert('Cập nhật sự kiện thành công!');
+    } else {
+        const { error } = await supabase.from('events').insert([eventForm]);
+        if (error) return alert('Lỗi thêm sự kiện: ' + error.message);
+        alert('Đã thêm sự kiện mới!');
+    }
+    setIsEventModalOpen(false);
+  };
+
+  const handleDeleteEvent = async (id: string) => {
+    if (confirm('Bạn có chắc muốn xóa sự kiện này?')) {
+        await supabase.from('events').delete().eq('id', id);
+        alert('Đã xóa sự kiện!');
+    }
+  };
+
+  // --- LOGIC QUẢN LÝ ĐUA TOP ---
+  const openAddLb = () => {
+    setEditingLb(null);
+    setLbForm({ name: '', invites: 0, reward: '' });
+    setIsLbModalOpen(true);
+  };
+
+  const openEditLb = (lb: any) => {
+    setEditingLb(lb);
+    setLbForm({ name: lb.name, invites: lb.invites, reward: lb.reward });
+    setIsLbModalOpen(true);
+  };
+
+  const saveLbInfo = async () => {
+    const payload = { ...lbForm, invites: parseInt(lbForm.invites as any) || 0 };
+    if (editingLb) {
+        const { error } = await supabase.from('leaderboards').update(payload).eq('id', editingLb.id);
+        if (error) return alert('Lỗi cập nhật: ' + error.message);
+        alert('Cập nhật bảng xếp hạng thành công!');
+    } else {
+        const { error } = await supabase.from('leaderboards').insert([payload]);
+        if (error) return alert('Lỗi thêm: ' + error.message);
+        alert('Đã thêm người vào bảng xếp hạng!');
+    }
+    setIsLbModalOpen(false);
+  };
+
+  const handleDeleteLb = async (id: string) => {
+    if (confirm('Xóa người này khỏi bảng xếp hạng đua top?')) {
+        await supabase.from('leaderboards').delete().eq('id', id);
+        alert('Đã xóa thành công!');
+    }
+  };
+
+  // --- LOGIC LƯU CÀI ĐẶT (CSKH) ---
+  const saveSettingsInfo = async () => {
+    const { data } = await supabase.from('settings').select('id').limit(1);
+    if (data && data.length > 0) {
+        await supabase.from('settings').update({ cskh_link: cskhLink }).eq('id', data[0].id);
+    } else {
+        await supabase.from('settings').insert([{ cskh_link: cskhLink }]);
+    }
+    alert('Đã lưu cấu hình hệ thống!');
   };
 
   // --- TÍNH TOÁN THỐNG KÊ TỔNG QUAN ---
@@ -227,9 +292,7 @@ export default function AdminDashboard() {
   // --- TÍNH TOÁN & LỌC DỮ LIỆU USER CHO TAB KHÁCH HÀNG ---
   const handleSort = (key: 'totalDeposit' | 'totalWithdrawal') => {
     let direction: 'asc' | 'desc' = 'desc';
-    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') {
-        direction = 'asc';
-    }
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc';
     setSortConfig({ key, direction });
   };
 
@@ -237,15 +300,9 @@ export default function AdminDashboard() {
       const userTxs = transactions.filter(t => t.user_id === u.id && t.status === 'success');
       const totalDeposit = userTxs.filter(t => t.type === 'nap_tien').reduce((sum, t) => sum + (t.amount || 0), 0);
       const totalWithdrawal = userTxs.filter(t => t.type === 'rut_tien').reduce((sum, t) => sum + (t.amount || 0), 0);
-      return {
-          ...u,
-          totalDeposit,
-          totalWithdrawal,
-          hasDeposited: totalDeposit > 0
-      };
+      return { ...u, totalDeposit, totalWithdrawal, hasDeposited: totalDeposit > 0 };
   });
 
-  // Tìm kiếm User
   if (searchQuery) {
       const q = searchQuery.toLowerCase();
       processedUsers = processedUsers.filter(u => 
@@ -254,7 +311,6 @@ export default function AdminDashboard() {
       );
   }
 
-  // Sắp xếp User
   if (sortConfig !== null) {
       processedUsers.sort((a, b) => {
           if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1;
@@ -268,13 +324,14 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen bg-slate-50 flex font-sans">
       {/* SIDEBAR */}
-      <div className="w-64 bg-slate-900 text-slate-300 flex flex-col shadow-xl z-10">
-        <div className="p-6 border-b border-slate-800">
+      <div className="w-64 bg-slate-900 text-slate-300 flex flex-col shadow-xl z-10 overflow-hidden">
+        <div className="p-6 border-b border-slate-800 shrink-0">
           <h1 className="text-xl font-bold text-white flex items-center gap-2">
             <Activity className="w-6 h-6 text-blue-500" /> Admin Panel
           </h1>
         </div>
-        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+        
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto custom-scrollbar">
           <p className="px-4 text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 mt-2">Quản lý chung</p>
           <button onClick={() => setActiveTab('overview')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${activeTab === 'overview' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'hover:bg-slate-800'}`}>
             <LayoutDashboard className="w-5 h-5" /> Tổng quan
@@ -296,8 +353,20 @@ export default function AdminDashboard() {
           <button onClick={() => setActiveTab('withdrawals')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${activeTab === 'withdrawals' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'hover:bg-slate-800'}`}>
             <ArrowUpFromLine className="w-5 h-5" /> Lịch sử Rút
           </button>
+
+          <p className="px-4 text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 mt-6">Nội dung & Cấu hình</p>
+          <button onClick={() => setActiveTab('events')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${activeTab === 'events' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'hover:bg-slate-800'}`}>
+            <Calendar className="w-5 h-5" /> Sự kiện
+          </button>
+          <button onClick={() => setActiveTab('leaderboards')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${activeTab === 'leaderboards' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'hover:bg-slate-800'}`}>
+            <Trophy className="w-5 h-5" /> Đua top
+          </button>
+          <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${activeTab === 'settings' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'hover:bg-slate-800'}`}>
+            <SettingsIcon className="w-5 h-5" /> Cài đặt hệ thống
+          </button>
         </nav>
-        <div className="p-4 border-t border-slate-800">
+
+        <div className="p-4 border-t border-slate-800 shrink-0">
           <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-rose-500/10 hover:text-rose-500 transition-colors font-medium">
             <LogOut className="w-5 h-5" /> Đăng xuất
           </button>
@@ -314,11 +383,24 @@ export default function AdminDashboard() {
             {activeTab === 'approvals' && 'Yêu cầu Rút tiền đang chờ'}
             {activeTab === 'deposits' && 'Lịch sử Nạp tiền'}
             {activeTab === 'withdrawals' && 'Lịch sử Rút tiền'}
+            {activeTab === 'events' && 'Quản lý Sự kiện & Thông báo'}
+            {activeTab === 'leaderboards' && 'Cấu hình Bảng Xếp Hạng'}
+            {activeTab === 'settings' && 'Cài đặt Hệ thống'}
             </h2>
             
             {activeTab === 'packages' && (
                 <button onClick={openAddPackage} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-sm transition-all">
                     <Plus className="w-5 h-5" /> Thêm Gói Mới
+                </button>
+            )}
+            {activeTab === 'events' && (
+                <button onClick={openAddEvent} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-sm transition-all">
+                    <Plus className="w-5 h-5" /> Thêm Sự Kiện
+                </button>
+            )}
+            {activeTab === 'leaderboards' && (
+                <button onClick={openAddLb} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-sm transition-all">
+                    <Plus className="w-5 h-5" /> Thêm Người Đua Top
                 </button>
             )}
         </div>
@@ -346,13 +428,12 @@ export default function AdminDashboard() {
         )}
 
         {/* TABLES AREA */}
-        {activeTab !== 'overview' && (
+        {activeTab !== 'overview' && activeTab !== 'settings' && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-visible flex flex-col">
           
           {/* TAB: USERS */}
           {activeTab === 'users' && (
             <>
-              {/* Thanh Tìm Kiếm */}
               <div className="p-4 border-b border-slate-200 bg-white">
                   <div className="relative max-w-md">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
@@ -411,24 +492,15 @@ export default function AdminDashboard() {
                               <MoreVertical className="w-5 h-5" />
                           </button>
 
-                          {/* Dropdown Menu */}
                           {openDropdownId === u.id && (
                               <>
-                                  {/* Overlay để đóng menu khi click ra ngoài */}
                                   <div className="fixed inset-0 z-10" onClick={() => setOpenDropdownId(null)}></div>
-                                  
                                   <div className="absolute right-8 top-10 w-56 bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden py-1">
-                                      <button 
-                                          onClick={() => { openEditUser(u); setOpenDropdownId(null); }} 
-                                          className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex items-center gap-3 text-slate-700 font-medium transition-colors"
-                                      >
+                                      <button onClick={() => { openEditUser(u); setOpenDropdownId(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex items-center gap-3 text-slate-700 font-medium transition-colors">
                                           <Edit className="w-4 h-4 text-slate-400"/> Sửa thông tin tài khoản
                                       </button>
                                       <div className="h-px bg-slate-100 my-1"></div>
-                                      <button 
-                                          onClick={() => { alert('Tính năng tặng gói'); setOpenDropdownId(null); }} 
-                                          className="w-full text-left px-4 py-2.5 text-sm hover:bg-blue-50 flex items-center gap-3 text-blue-600 font-medium transition-colors"
-                                      >
+                                      <button onClick={() => { alert('Tính năng tặng gói'); setOpenDropdownId(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-blue-50 flex items-center gap-3 text-blue-600 font-medium transition-colors">
                                           <Gift className="w-4 h-4"/> Tặng gói thủ công
                                       </button>
                                   </div>
@@ -465,9 +537,85 @@ export default function AdminDashboard() {
                     <td className="p-4 text-center">
                       <div className="flex justify-center gap-2">
                           <button onClick={() => openEditPackage(p)} className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 font-medium transition-colors">
-                            <Edit className="w-4 h-4" /> Chỉnh sửa
+                            <Edit className="w-4 h-4" /> Sửa
                           </button>
                           <button onClick={() => handleDeletePackage(p.id)} className="inline-flex items-center gap-1 px-3 py-1.5 bg-rose-50 text-rose-600 rounded-lg hover:bg-rose-100 font-medium transition-colors">
+                            <Trash2 className="w-4 h-4" /> Xóa
+                          </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {/* TAB: EVENTS */}
+          {activeTab === 'events' && (
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
+                  <th className="p-4 font-semibold">Tên sự kiện</th>
+                  <th className="p-4 font-semibold">Thời gian</th>
+                  <th className="p-4 font-semibold">Nội dung</th>
+                  <th className="p-4 font-semibold">Trạng thái</th>
+                  <th className="p-4 font-semibold text-center">Hành động</th>
+                </tr>
+              </thead>
+              <tbody className="text-sm">
+                {events.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-slate-500">Chưa có sự kiện nào.</td></tr>}
+                {events.map(evt => (
+                  <tr key={evt.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                    <td className="p-4 font-bold text-slate-800 max-w-[200px] truncate">{evt.title}</td>
+                    <td className="p-4 text-slate-600 font-medium">{evt.date}</td>
+                    <td className="p-4 text-slate-500 max-w-[250px] truncate">{evt.content}</td>
+                    <td className="p-4">
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${evt.status === 'active' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>
+                            {evt.status === 'active' ? 'Đang diễn ra' : 'Sắp diễn ra'}
+                        </span>
+                    </td>
+                    <td className="p-4 text-center">
+                      <div className="flex justify-center gap-2">
+                          <button onClick={() => openEditEvent(evt)} className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 font-medium transition-colors">
+                            <Edit className="w-4 h-4" /> Sửa
+                          </button>
+                          <button onClick={() => handleDeleteEvent(evt.id)} className="inline-flex items-center gap-1 px-3 py-1.5 bg-rose-50 text-rose-600 rounded-lg hover:bg-rose-100 font-medium transition-colors">
+                            <Trash2 className="w-4 h-4" /> Xóa
+                          </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {/* TAB: LEADERBOARD */}
+          {activeTab === 'leaderboards' && (
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
+                  <th className="p-4 font-semibold">Tài khoản (Tên)</th>
+                  <th className="p-4 font-semibold text-center">Số lượt mời</th>
+                  <th className="p-4 font-semibold text-right">Phần thưởng</th>
+                  <th className="p-4 font-semibold text-center">Hành động</th>
+                </tr>
+              </thead>
+              <tbody className="text-sm">
+                {leaderboards.length === 0 && <tr><td colSpan={4} className="p-8 text-center text-slate-500">Chưa có người dùng nào trên bảng xếp hạng.</td></tr>}
+                {leaderboards.map((lb, idx) => (
+                  <tr key={lb.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                    <td className="p-4 font-bold text-slate-800">
+                        <span className="text-slate-400 mr-2">#{idx + 1}</span> {lb.name}
+                    </td>
+                    <td className="p-4 text-center font-bold text-blue-600">{lb.invites}</td>
+                    <td className="p-4 text-right text-amber-600 font-bold">{lb.reward}</td>
+                    <td className="p-4 text-center">
+                      <div className="flex justify-center gap-2">
+                          <button onClick={() => openEditLb(lb)} className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 font-medium transition-colors">
+                            <Edit className="w-4 h-4" /> Sửa
+                          </button>
+                          <button onClick={() => handleDeleteLb(lb.id)} className="inline-flex items-center gap-1 px-3 py-1.5 bg-rose-50 text-rose-600 rounded-lg hover:bg-rose-100 font-medium transition-colors">
                             <Trash2 className="w-4 h-4" /> Xóa
                           </button>
                       </div>
@@ -548,7 +696,7 @@ export default function AdminDashboard() {
             </table>
           )}
 
-          {/* TAB: WITHDRAWAL HISTORY (Đã xử lý) */}
+          {/* TAB: WITHDRAWAL HISTORY */}
           {activeTab === 'withdrawals' && (
             <table className="w-full text-left border-collapse">
               <thead>
@@ -581,9 +729,32 @@ export default function AdminDashboard() {
               </tbody>
             </table>
           )}
-
         </div>
         )}
+
+        {/* TAB: SETTINGS (CSKH) */}
+        {activeTab === 'settings' && (
+            <div className="max-w-2xl bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+                <h3 className="font-bold text-xl text-slate-800 mb-6 flex items-center gap-2">
+                    <SettingsIcon className="w-6 h-6 text-blue-600" /> Cấu hình Liên hệ Hỗ trợ (CSKH)
+                </h3>
+                <div className="mb-6">
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Đường link Zalo / Telegram / Messenger</label>
+                    <input 
+                        type="text" 
+                        placeholder="VD: https://zalo.me/0123456789" 
+                        value={cskhLink} 
+                        onChange={e => setCskhLink(e.target.value)} 
+                        className="w-full border border-slate-200 bg-slate-50 focus:bg-white rounded-xl p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-slate-800" 
+                    />
+                    <p className="text-sm text-slate-500 mt-2">Đường link này sẽ được hiển thị khi người dùng bấm vào nút "CSKH / Hỗ trợ" trên ứng dụng.</p>
+                </div>
+                <button onClick={saveSettingsInfo} className="px-8 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all">
+                    Lưu Cấu Hình
+                </button>
+            </div>
+        )}
+
       </div>
 
       {/* POPUP: EDIT USER BANK */}
@@ -611,11 +782,8 @@ export default function AdminDashboard() {
       {isPackageModalOpen && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl relative">
-                <button onClick={() => setIsPackageModalOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700">
-                    <X className="w-6 h-6" />
-                </button>
+                <button onClick={() => setIsPackageModalOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"><X className="w-6 h-6" /></button>
                 <h3 className="font-bold text-xl text-slate-900 mb-6">{editingPackage ? 'Chỉnh sửa Gói' : 'Thêm Gói Mới'}</h3>
-                
                 <div className="space-y-4 mb-8">
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-2">Tên Gói</label>
@@ -634,10 +802,64 @@ export default function AdminDashboard() {
                         <input type="text" placeholder="VD: 24 Months" value={pkgForm.duration} onChange={e => setPkgForm({...pkgForm, duration: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     </div>
                 </div>
+                <button onClick={savePackageInfo} className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all">{editingPackage ? 'Lưu Thay Đổi' : 'Tạo Gói Mới'}</button>
+            </div>
+        </div>
+      )}
 
-                <button onClick={savePackageInfo} className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all">
-                    {editingPackage ? 'Lưu Thay Đổi' : 'Tạo Gói Mới'}
-                </button>
+      {/* POPUP: ADD/EDIT EVENT */}
+      {isEventModalOpen && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl relative">
+                <button onClick={() => setIsEventModalOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"><X className="w-6 h-6" /></button>
+                <h3 className="font-bold text-xl text-slate-900 mb-6">{editingEvent ? 'Chỉnh sửa Sự kiện' : 'Thêm Sự kiện Mới'}</h3>
+                <div className="space-y-4 mb-8">
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Tiêu đề Sự kiện</label>
+                        <input type="text" placeholder="Nhập tiêu đề..." value={eventForm.title} onChange={e => setEventForm({...eventForm, title: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Thời gian</label>
+                        <input type="text" placeholder="VD: 15/04/2026 - 30/04/2026" value={eventForm.date} onChange={e => setEventForm({...eventForm, date: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Nội dung / Thể lệ</label>
+                        <textarea placeholder="Mô tả sự kiện..." value={eventForm.content} onChange={e => setEventForm({...eventForm, content: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[100px]" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Trạng thái</label>
+                        <select value={eventForm.status} onChange={e => setEventForm({...eventForm, status: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium">
+                            <option value="active">Đang diễn ra</option>
+                            <option value="upcoming">Sắp diễn ra</option>
+                        </select>
+                    </div>
+                </div>
+                <button onClick={saveEventInfo} className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all">{editingEvent ? 'Lưu Thay Đổi' : 'Tạo Sự Kiện'}</button>
+            </div>
+        </div>
+      )}
+
+      {/* POPUP: ADD/EDIT LEADERBOARD */}
+      {isLbModalOpen && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl relative">
+                <button onClick={() => setIsLbModalOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"><X className="w-6 h-6" /></button>
+                <h3 className="font-bold text-xl text-slate-900 mb-6">{editingLb ? 'Chỉnh sửa Đua top' : 'Thêm Người vào Đua Top'}</h3>
+                <div className="space-y-4 mb-8">
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Tên / Tài khoản hiển thị</label>
+                        <input type="text" placeholder="VD: hoang***@gmail.com" value={lbForm.name} onChange={e => setLbForm({...lbForm, name: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Số lượt mời (Làm mốc xếp hạng)</label>
+                        <input type="number" placeholder="VD: 150" value={lbForm.invites} onChange={e => setLbForm({...lbForm, invites: Number(e.target.value)})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Phần thưởng (Nếu có)</label>
+                        <input type="text" placeholder="VD: 10,000,000 VNĐ" value={lbForm.reward} onChange={e => setLbForm({...lbForm, reward: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                </div>
+                <button onClick={saveLbInfo} className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all">{editingLb ? 'Lưu Thay Đổi' : 'Thêm Vào Bảng'}</button>
             </div>
         </div>
       )}
