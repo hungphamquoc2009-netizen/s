@@ -40,26 +40,30 @@ function RegisterFormContent() {
 
       if (authError) throw authError;
 
-      // 2. NGAY LẬP TỨC TẶNG 30,000 VNĐ VÀ LƯU MÃ GIỚI THIỆU
+      // 2. LƯU PROFILE BẰNG UPSERT (TRÁNH LỖI TRÙNG ID) VÀ TẶNG 30K
       if (authData.user) {
-        const { error: profileError } = await supabase.from('profiles').insert([
+        const { error: profileError } = await supabase.from('profiles').upsert([
           { 
             id: authData.user.id, 
-            balance: 30000, // <--- Tặng tiền tân thủ ở đây
+            balance: 30000, // Tặng tiền tân thủ
             has_purchased_package: false,
-            referred_by: referralCode ? referralCode : null // <--- Lưu mã giới thiệu vào DB
+            referred_by: referralCode ? referralCode : null // Lưu mã giới thiệu vào DB
           }
         ]);
         
+        // NẾU CÓ LỖI TỪ SUPABASE, BÁO NGAY RA MÀN HÌNH ĐỂ DỄ SỬA
         if (profileError) {
           console.error("Lỗi tạo profile:", profileError);
+          throw new Error("Lỗi lưu dữ liệu: " + profileError.message);
         }
       }
 
       setMessage('Đăng ký thành công! Bạn được tặng 30,000 VNĐ vào tài khoản.');
       
       // Chuyển hướng thẳng vào trang Dashboard ngay lập tức
-      router.push('/dashboard');
+      setTimeout(() => {
+          router.push('/dashboard');
+      }, 1000);
 
     } catch (error: any) {
       setMessage(error.message || 'Có lỗi xảy ra khi đăng ký.');
