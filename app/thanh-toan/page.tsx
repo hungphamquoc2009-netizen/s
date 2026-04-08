@@ -17,6 +17,7 @@ function PaymentContent() {
   const [userId, setUserId] = useState<string>('');
   const [transferContent, setTransferContent] = useState<string>('');
   const [packagePrice, setPackagePrice] = useState<number>(0);
+  const [dailyRate, setDailyRate] = useState<number>(0); // Thêm state lưu lãi suất ngày
   const [isCopied, setIsCopied] = useState<Record<string, boolean>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -26,7 +27,7 @@ function PaymentContent() {
   const ACCOUNT_NAME = "HOANG QUOC VIET";
   const API_BANK = "https://thueapibank.vn/historyapivpbankneov2/d33a5cde4962560a0138920f20d550df";
 
-  // Khởi tạo dữ liệu người dùng, lấy giá gói và tạo nội dung chuyển khoản
+  // Khởi tạo dữ liệu người dùng, lấy giá gói, lãi suất và tạo nội dung chuyển khoản
   useEffect(() => {
     const initData = async () => {
       const { data: { session }, error } = await supabase.auth.getSession();
@@ -54,17 +55,27 @@ function PaymentContent() {
       const content = `MUA ${safePackageName} ${name} ${randomCode}`;
       setTransferContent(content);
 
-      // Lấy thông tin giá tiền của gói từ bảng packages
+      // Lấy thông tin giá tiền và % lợi nhuận của gói từ bảng packages
       const { data: pkgData, error: pkgError } = await supabase
         .from('packages')
-        .select('limits')
+        .select('limits, return_rate')
         .eq('name', packageName)
         .single();
 
-      if (pkgData && pkgData.limits && !pkgError) {
-        // Dùng Regex để loại bỏ tất cả chữ cái, dấu phẩy, khoảng trắng... chỉ giữ lại số
-        const numericPrice = parseInt(pkgData.limits.replace(/\D/g, ''), 10) || 0;
-        setPackagePrice(numericPrice);
+      if (pkgData && !pkgError) {
+        // Xử lý giá tiền (giữ lại số nguyên)
+        if (pkgData.limits) {
+          const numericPrice = parseInt(pkgData.limits.replace(/\D/g, ''), 10) || 0;
+          setPackagePrice(numericPrice);
+        }
+        
+        // Xử lý lãi suất (Ví dụ: "18%" -> lấy số 18 -> tính ra lãi mỗi ngày)
+        if (pkgData.return_rate) {
+          const rateMatch = pkgData.return_rate.match(/\d+/);
+          const yearlyRate = rateMatch ? parseInt(rateMatch[0], 10) : 0;
+          const calculatedDailyRate = yearlyRate / 365 / 100;
+          setDailyRate(calculatedDailyRate);
+        }
       }
 
       setIsLoading(false);
@@ -73,7 +84,7 @@ function PaymentContent() {
     initData();
   }, [packageName]);
 
-  // Hệ thống Auto-Check (Polling) API Bank và Chia Hoa Hồng
+  // Hệ thống Auto-Check (Polling) API Bank, Chia Hoa Hồng & Lưu Gói Đầu Tư
   useEffect(() => {
     if (!transferContent || !userId) return;
 
@@ -100,32 +111,40 @@ function PaymentContent() {
         });
 
         if (matchedTx) {
-          // Nếu tìm thấy giao dịch hợp lệ
-          clearInterval(intervalId); // Dừng polling
+          // Dừng polling khi đã tìm thấy
+          clearInterval(intervalId); 
           
           // Lấy chính xác số tiền khách đã chuyển
           const paidAmount = Number(matchedTx.amount || matchedTx.creditAmount || matchedTx.sotien || matchedTx.tien || 0);
 
-          // 1. Cập nhật trạng thái đã mua gói vào Supabase
+          // 1. Cập nhật trạng thái đã mua gói vào profile
           await supabase
             .from('profiles')
             .update({ has_purchased_package: true })
             .eq('id', userId);
 
-          // 2. GỌI HÀM RPC ĐỂ CHIA HOA HỒNG TỰ ĐỘNG CHO F1, F2, F3
+          // 2. CHIA HOA HỒNG TỰ ĐỘNG CHO F1, F2, F3
           if (paidAmount > 0) {
               const { error: rpcError } = await supabase.rpc('distribute_commission', { 
                   p_buyer_id: userId, 
                   p_amount: paidAmount 
               });
+              if (rpcError) console.error("Lỗi khi chia hoa hồng:", rpcError);
+          }
 
-              if (rpcError) {
-                  console.error("Lỗi khi chia hoa hồng:", rpcError);
-              }
+          // 3. TẠO GÓI ĐẦU TƯ ĐANG CHẠY VÀO BẢNG user_packages (MỚI)
+          if (paidAmount > 0) {
+              const { error: pkgInsertError } = await supabase.from('user_packages').insert({
+                  user_id: userId,
+                  package_name: packageName,
+                  invested_amount: paidAmount, // Ghi nhận đúng số tiền thực tế khách đã chuyển
+                  daily_interest_rate: dailyRate,
+                  status: 'active'
+              });
+              if (pkgInsertError) console.error("Lỗi khi tạo gói đầu tư:", pkgInsertError);
           }
 
           alert("Thanh toán thành công! Hệ thống đang chuyển hướng về bảng điều khiển.");
-          // Đã sửa hướng điều hướng về trang dashboard theo yêu cầu
           window.location.href = '/dashboard';
         }
       } catch (error) {
@@ -139,11 +158,10 @@ function PaymentContent() {
     // Thiết lập vòng lặp kiểm tra mỗi 5 giây
     intervalId = setInterval(checkPaymentStatus, 5000);
 
-    // Cleanup interval khi component unmount
     return () => {
       if (intervalId) clearInterval(intervalId);
     };
-  }, [transferContent, userId]);
+  }, [transferContent, userId, packageName, dailyRate]);
 
   // Hàm xử lý copy
   const handleCopy = (text: string, field: string) => {
