@@ -89,8 +89,13 @@ function PaymentContent() {
     if (!transferContent || !userId) return;
 
     let intervalId: NodeJS.Timeout;
+    let isChecking = false; // Cờ chống gọi API đè nhau
 
     const checkPaymentStatus = async () => {
+      // Nếu đang check dở thì không gọi lại để tránh spam API
+      if (isChecking) return;
+      isChecking = true;
+
       try {
         const res = await fetch(API_BANK);
         const data = await res.json();
@@ -111,8 +116,9 @@ function PaymentContent() {
         });
 
         if (matchedTx) {
-          // Dừng polling khi đã tìm thấy
+          // Dừng polling ngay khi đã tìm thấy
           clearInterval(intervalId); 
+          document.removeEventListener('visibilitychange', handleVisibilityChange);
           
           // Lấy chính xác số tiền khách đã chuyển
           const paidAmount = Number(matchedTx.amount || matchedTx.creditAmount || matchedTx.sotien || matchedTx.tien || 0);
@@ -149,17 +155,30 @@ function PaymentContent() {
         }
       } catch (error) {
         console.error("Lỗi khi fetch API Bank:", error);
+      } finally {
+        isChecking = false;
+      }
+    };
+
+    // Hàm xử lý khi người dùng quay lại tab web từ ứng dụng khác
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkPaymentStatus(); // Gọi kiểm tra ngay lập tức khi mở lại web
       }
     };
 
     // Chạy ngay lần đầu tiên
     checkPaymentStatus();
     
-    // Thiết lập vòng lặp kiểm tra mỗi 5 giây
+    // Lắng nghe sự kiện chuyển tab/quay lại app
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Thiết lập vòng lặp kiểm tra mỗi 5 giây cho trường hợp người dùng dùng 2 thiết bị
     intervalId = setInterval(checkPaymentStatus, 5000);
 
     return () => {
       if (intervalId) clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [transferContent, userId, packageName, dailyRate]);
 
