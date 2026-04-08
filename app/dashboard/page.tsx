@@ -121,8 +121,7 @@ export default function FintechDashboard() {
         const lbFormatted = lbData.map((row: any) => ({
             id: row.id,
             name: `User_${row.id.substring(0, 8)}`,
-            invites: row.invites,
-            reward: (row.invites * 50000).toLocaleString('vi-VN') + ' ₫' 
+            invites: row.invites
         }));
         setLeaderboardData(lbFormatted);
       } else {
@@ -135,7 +134,6 @@ export default function FintechDashboard() {
     const { data: configData } = await supabase.from('settings').select('cskh_link').limit(1).single();
     if (configData && configData.cskh_link) setCskhLink(configData.cskh_link);
 
-    // XỬ LÝ LẤY DATA GIỚI THIỆU: Gọi RPC để vượt qua RLS
     try {
       const { data: refsData, error: refsError } = await supabase.rpc('get_my_referrals', { p_user_id: session.user.id });
       if (refsData && !refsError) {
@@ -658,17 +656,19 @@ export default function FintechDashboard() {
                   <Trophy className="w-16 h-16 mx-auto mb-4 opacity-90" />
                   <h2 className="text-3xl font-extrabold mb-2">Bảng Xếp Hạng Giới Thiệu</h2>
                 </div>
-                <div className="bg-white rounded-b-2xl shadow-sm border border-slate-100 overflow-hidden">
+                <div className="bg-white shadow-sm border border-slate-100 overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-100">
-                          <th className="p-4 font-bold text-slate-500 text-center w-20">Hạng</th><th className="p-4 font-bold text-slate-500">Tài khoản</th><th className="p-4 font-bold text-slate-500 text-center">Lượt mời</th><th className="p-4 font-bold text-slate-500 text-right">Phần thưởng dự kiến</th>
+                          <th className="p-4 font-bold text-slate-500 text-center w-20">Hạng</th>
+                          <th className="p-4 font-bold text-slate-500">Tài khoản</th>
+                          <th className="p-4 font-bold text-slate-500 text-center">Lượt mời</th>
                         </tr>
                       </thead>
                       <tbody>
                         {leaderboardData.length === 0 ? (
-                          <tr><td colSpan={4} className="p-6 text-center text-slate-500">Đang cập nhật bảng xếp hạng...</td></tr>
+                          <tr><td colSpan={3} className="p-6 text-center text-slate-500">Đang cập nhật bảng xếp hạng...</td></tr>
                         ) : (
                           leaderboardData.map((user, idx) => {
                             const rank = idx + 1;
@@ -677,13 +677,26 @@ export default function FintechDashboard() {
                                 <td className="p-4 text-center">{rank === 1 ? <span className="text-2xl">🥇</span> : rank === 2 ? <span className="text-2xl">🥈</span> : rank === 3 ? <span className="text-2xl">🥉</span> : <span className="font-bold text-slate-400">#{rank}</span>}</td>
                                 <td className="p-4 font-medium text-slate-800">{user.name}</td>
                                 <td className="p-4 text-center"><span className="bg-[#1E6EFF]/10 text-[#1E6EFF] px-3 py-1 rounded-full font-bold text-sm">{user.invites}</span></td>
-                                <td className="p-4 text-right font-bold text-amber-600">{user.reward}</td>
                               </tr>
                             );
                           })
                         )}
                       </tbody>
                     </table>
+                  </div>
+                </div>
+                
+                {/* Khu vực Ghi chú Cơ cấu giải thưởng */}
+                <div className="bg-amber-50 p-5 rounded-b-2xl border-t-0 border border-amber-100">
+                  <h4 className="font-bold text-amber-800 mb-3 flex items-center gap-2">
+                    <Gift className="w-5 h-5" /> Cơ cấu giải thưởng
+                  </h4>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm font-medium text-amber-700">
+                    <div className="bg-white px-4 py-2.5 rounded-xl border border-amber-200 shadow-sm"><span className="text-amber-500 font-bold mr-1">TOP 1:</span> 5.000.000 VNĐ</div>
+                    <div className="bg-white px-4 py-2.5 rounded-xl border border-amber-200 shadow-sm"><span className="text-amber-500 font-bold mr-1">TOP 2:</span> 2.000.000 VNĐ</div>
+                    <div className="bg-white px-4 py-2.5 rounded-xl border border-amber-200 shadow-sm"><span className="text-amber-500 font-bold mr-1">TOP 3:</span> 1.000.000 VNĐ</div>
+                    <div className="bg-white px-4 py-2.5 rounded-xl border border-amber-200 shadow-sm"><span className="text-amber-500 font-bold mr-1">TOP 4:</span> 500.000 VNĐ</div>
+                    <div className="bg-white px-4 py-2.5 rounded-xl border border-amber-200 shadow-sm md:col-span-2"><span className="text-amber-500 font-bold mr-1">TOP 5-10:</span> 200.000 VNĐ</div>
                   </div>
                 </div>
               </div>
