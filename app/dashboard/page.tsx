@@ -13,6 +13,7 @@ import {
 import { supabase } from '@/lib/supabase'; 
 
 // --- MOCK DATA (Biểu đồ) ---
+// Giữ nguyên dữ liệu biểu đồ vì đây thường là dữ liệu tính toán động hoặc admin chưa yêu cầu đổi
 const chartData = [
   { name: 'Jan', actual: 120, expected: 130 },
   { name: 'Feb', actual: 135, expected: 138 },
@@ -20,21 +21,6 @@ const chartData = [
   { name: 'Apr', actual: 142, expected: 152 },
   { name: 'May', actual: 157, expected: 160 },
   { name: 'Jun', actual: 175, expected: 168 },
-];
-
-// --- MOCK DATA (Sự kiện & Đua top) ---
-const mockEvents = [
-  { id: 1, title: 'Sự kiện ra mắt nền tảng', date: '15/04/2026', content: 'Thưởng nóng 50,000 VNĐ cho người dùng mới khi đăng ký và KYC thành công.', status: 'active' },
-  { id: 2, title: 'Đua top giới thiệu tháng 4', date: '01/04/2026 - 30/04/2026', content: 'Top 10 người giới thiệu nhiều nhất sẽ nhận được giải thưởng lên đến 10 triệu đồng.', status: 'active' },
-  { id: 3, title: 'Bảo trì hệ thống định kỳ', date: '20/04/2026', content: 'Hệ thống sẽ bảo trì từ 2h00 - 4h00 sáng để nâng cấp hiệu suất.', status: 'upcoming' },
-];
-
-const mockLeaderboard = [
-  { rank: 1, name: 'hoang***@gmail.com', invites: 342, reward: '10,000,000 VNĐ' },
-  { rank: 2, name: 'tranv***@gmail.com', invites: 285, reward: '5,000,000 VNĐ' },
-  { rank: 3, name: 'lethi***@gmail.com', invites: 210, reward: '2,000,000 VNĐ' },
-  { rank: 4, name: 'phamh***@yahoo.com', invites: 156, reward: '1,000,000 VNĐ' },
-  { rank: 5, name: 'nguye***@gmail.com', invites: 142, reward: '500,000 VNĐ' },
 ];
 
 export default function FintechDashboard() {
@@ -58,9 +44,11 @@ export default function FintechDashboard() {
   const [amount, setAmount] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // --- NEW FEATURES STATES ---
-  const [events, setEvents] = useState<any[]>(mockEvents);
+  // --- NEW FEATURES STATES (Dữ liệu thật từ DB) ---
+  const [events, setEvents] = useState<any[]>([]);
+  const [leaderboardData, setLeaderboardData] = useState<any[]>([]);
   const [cskhLink, setCskhLink] = useState<string>('#');
+  const [refStats, setRefStats] = useState({ f1: 0, f2: 0, f3: 0, total: 0 });
 
   useEffect(() => {
     const loadData = async () => {
@@ -75,6 +63,7 @@ export default function FintechDashboard() {
       setUserName(email.split('@')[0]);
       setUserId(session.user.id);
 
+      // 1. Fetch Profile Data
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('balance, bank_account, bank_name, has_purchased_package')
@@ -90,6 +79,7 @@ export default function FintechDashboard() {
           setBalance(0);
       }
 
+      // 2. Fetch Transactions
       const { data: txs, error: txError } = await supabase
         .from('transactions')
         .select('*')
@@ -97,28 +87,56 @@ export default function FintechDashboard() {
         .order('created_at', { ascending: false })
         .limit(3);
         
-      if (txs && !txError) {
-          setTxHistory(txs);
-      }
+      if (txs && !txError) setTxHistory(txs);
 
+      // 3. Fetch Packages
       const { data: pkgs, error: pkgsError } = await supabase
         .from('packages')
         .select('*')
         .order('created_at', { ascending: true });
 
-      if (pkgs && !pkgsError) {
-          setPackages(pkgs);
-      }
+      if (pkgs && !pkgsError) setPackages(pkgs);
 
-      // TODO: Cấu trúc gọi dữ liệu cho Events và CSKH Link từ Supabase (dành cho Admin sau này)
-      /*
-      const { data: eventsData } = await supabase.from('events').select('*').order('created_at', { ascending: false });
+      // 4. Fetch Events
+      const { data: eventsData } = await supabase
+        .from('events')
+        .select('*')
+        .order('created_at', { ascending: false });
       if (eventsData) setEvents(eventsData);
 
-      const { data: configData } = await supabase.from('settings').select('cskh_link').single();
-      if (configData) setCskhLink(configData.cskh_link);
-      */
+      // 5. Fetch Leaderboard
+      const { data: lbData } = await supabase
+        .from('leaderboards')
+        .select('*')
+        .order('invites', { ascending: false });
+      if (lbData) setLeaderboardData(lbData);
+
+      // 6. Fetch CSKH Link
+      const { data: configData } = await supabase
+        .from('settings')
+        .select('cskh_link')
+        .limit(1)
+        .single();
+      if (configData && configData.cskh_link) setCskhLink(configData.cskh_link);
+
+      // 7. Fetch Referral Stats (Giả định lấy từ bảng referral_stats)
+      const { data: refData } = await supabase
+        .from('referral_stats')
+        .select('f1, f2, f3')
+        .eq('user_id', session.user.id)
+        .single();
+
+      if (refData) {
+        const f1 = refData.f1 || 0;
+        const f2 = refData.f2 || 0;
+        const f3 = refData.f3 || 0;
+        setRefStats({ f1, f2, f3, total: f1 + f2 + f3 });
+      } else {
+        // Dữ liệu tạm nếu user chưa có record
+        setRefStats({ f1: 0, f2: 0, f3: 0, total: 0 });
+      }
     };
+    
     loadData();
   }, []);
 
@@ -455,32 +473,48 @@ export default function FintechDashboard() {
             {/* ================= TAB: GIỚI THIỆU ================= */}
             {activeTab === 'referral' && (
               <div className="max-w-4xl space-y-8 animate-in fade-in duration-300">
-                <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-100">
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl">
-                      <LinkIcon className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <h2 className="text-2xl font-bold text-slate-900">Mã giới thiệu của bạn</h2>
-                      <p className="text-slate-500 text-sm mt-1">Chia sẻ link này để nhận hoa hồng khi bạn bè đầu tư.</p>
-                    </div>
+                {/* Nút Sao chép Link */}
+                <div className="bg-white rounded-2xl p-8 md:p-10 shadow-sm border border-slate-100 flex flex-col items-center text-center">
+                  <div className="p-4 bg-indigo-50 text-indigo-600 rounded-full mb-4">
+                    <LinkIcon className="w-8 h-8" />
                   </div>
+                  <h2 className="text-2xl font-bold text-slate-900 mb-2">Mã giới thiệu của bạn</h2>
+                  <p className="text-slate-500 text-sm mb-8 max-w-md">Chia sẻ link giới thiệu cho bạn bè để nhận ngay phần trăm hoa hồng hấp dẫn mỗi khi họ tham gia đầu tư.</p>
                   
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <div className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 flex items-center overflow-hidden">
-                      <span className="text-slate-500 font-medium truncate w-full">
-                        https://finvest.fun/register?ref={userId || 'loading...'}
-                      </span>
+                  <button 
+                    onClick={copyReferralLink}
+                    className={`w-full max-w-sm py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg hover:-translate-y-1 ${isCopied ? 'bg-emerald-500 text-white shadow-emerald-500/25' : 'bg-gradient-to-r from-indigo-600 to-[#1E6EFF] text-white shadow-blue-500/25'}`}
+                  >
+                    {isCopied ? <><CheckCircle2 className="w-6 h-6" /> Đã sao chép thành công</> : <><Copy className="w-6 h-6" /> Sao chép Link Giới Thiệu</>}
+                  </button>
+                </div>
+
+                {/* Thống kê giới thiệu */}
+                <div className="space-y-4">
+                  <h3 className="text-xl font-bold text-slate-900">Thống kê giới thiệu</h3>
+                  <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 flex flex-col md:flex-row items-center gap-6">
+                    <div className="flex flex-col items-center justify-center p-6 bg-blue-50 rounded-2xl w-full md:w-1/3 border border-blue-100">
+                        <span className="text-slate-500 font-medium mb-2">Tổng số lượt mời</span>
+                        <span className="text-5xl font-extrabold text-[#1E6EFF]">{refStats.total}</span>
                     </div>
-                    <button 
-                      onClick={copyReferralLink}
-                      className={`px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shrink-0 ${isCopied ? 'bg-emerald-500 text-white' : 'bg-slate-900 text-white hover:bg-slate-800'}`}
-                    >
-                      {isCopied ? <><CheckCircle2 className="w-5 h-5" /> Đã sao chép</> : <><Copy className="w-5 h-5" /> Sao chép Link</>}
-                    </button>
+                    <div className="w-full md:w-2/3 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                       <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 text-center">
+                          <span className="text-slate-500 text-sm font-medium block mb-1">Cấp 1 (F1)</span>
+                          <span className="text-2xl font-bold text-slate-800">{refStats.f1}</span>
+                       </div>
+                       <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 text-center">
+                          <span className="text-slate-500 text-sm font-medium block mb-1">Cấp 2 (F2)</span>
+                          <span className="text-2xl font-bold text-slate-800">{refStats.f2}</span>
+                       </div>
+                       <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 text-center">
+                          <span className="text-slate-500 text-sm font-medium block mb-1">Cấp 3 (F3)</span>
+                          <span className="text-2xl font-bold text-slate-800">{refStats.f3}</span>
+                       </div>
+                    </div>
                   </div>
                 </div>
 
+                {/* Chính sách hoa hồng */}
                 <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-100">
                   <h3 className="text-xl font-bold text-slate-900 mb-6">Chính sách hoa hồng</h3>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -510,20 +544,24 @@ export default function FintechDashboard() {
                 <h2 className="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-2">
                   <Calendar className="w-6 h-6 text-[#1E6EFF]" /> Sự kiện & Thông báo
                 </h2>
-                {events.map((event) => (
-                  <div key={event.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
-                    <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-4">
-                      <h3 className="text-lg font-bold text-slate-800">{event.title}</h3>
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold shrink-0 ${event.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                        {event.status === 'active' ? 'Đang diễn ra' : 'Sắp diễn ra'}
-                      </span>
+                {events.length === 0 ? (
+                  <p className="text-slate-500 bg-white p-6 rounded-2xl border border-slate-100 text-center">Hiện tại chưa có sự kiện nào.</p>
+                ) : (
+                  events.map((event) => (
+                    <div key={event.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
+                      <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-4">
+                        <h3 className="text-lg font-bold text-slate-800">{event.title}</h3>
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold shrink-0 ${event.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                          {event.status === 'active' ? 'Đang diễn ra' : 'Sắp diễn ra'}
+                        </span>
+                      </div>
+                      <p className="text-slate-600 mb-4">{event.content}</p>
+                      <div className="flex items-center gap-2 text-sm text-slate-400 font-medium">
+                        <Calendar className="w-4 h-4" /> Thời gian: {event.date}
+                      </div>
                     </div>
-                    <p className="text-slate-600 mb-4">{event.content}</p>
-                    <div className="flex items-center gap-2 text-sm text-slate-400 font-medium">
-                      <Calendar className="w-4 h-4" /> Thời gian: {event.date}
-                    </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             )}
 
@@ -547,23 +585,32 @@ export default function FintechDashboard() {
                         </tr>
                       </thead>
                       <tbody>
-                        {mockLeaderboard.map((user, idx) => (
-                          <tr key={idx} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
-                            <td className="p-4 text-center">
-                              {user.rank === 1 ? <span className="text-2xl">🥇</span> : 
-                               user.rank === 2 ? <span className="text-2xl">🥈</span> : 
-                               user.rank === 3 ? <span className="text-2xl">🥉</span> : 
-                               <span className="font-bold text-slate-400">#{user.rank}</span>}
-                            </td>
-                            <td className="p-4 font-medium text-slate-800">{user.name}</td>
-                            <td className="p-4 text-center">
-                              <span className="bg-[#1E6EFF]/10 text-[#1E6EFF] px-3 py-1 rounded-full font-bold text-sm">
-                                {user.invites}
-                              </span>
-                            </td>
-                            <td className="p-4 text-right font-bold text-amber-600">{user.reward}</td>
+                        {leaderboardData.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="p-6 text-center text-slate-500">Đang cập nhật bảng xếp hạng...</td>
                           </tr>
-                        ))}
+                        ) : (
+                          leaderboardData.map((user, idx) => {
+                            const rank = idx + 1;
+                            return (
+                              <tr key={user.id || idx} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                                <td className="p-4 text-center">
+                                  {rank === 1 ? <span className="text-2xl">🥇</span> : 
+                                   rank === 2 ? <span className="text-2xl">🥈</span> : 
+                                   rank === 3 ? <span className="text-2xl">🥉</span> : 
+                                   <span className="font-bold text-slate-400">#{rank}</span>}
+                                </td>
+                                <td className="p-4 font-medium text-slate-800">{user.name}</td>
+                                <td className="p-4 text-center">
+                                  <span className="bg-[#1E6EFF]/10 text-[#1E6EFF] px-3 py-1 rounded-full font-bold text-sm">
+                                    {user.invites}
+                                  </span>
+                                </td>
+                                <td className="p-4 text-right font-bold text-amber-600">{user.reward}</td>
+                              </tr>
+                            );
+                          })
+                        )}
                       </tbody>
                     </table>
                   </div>
