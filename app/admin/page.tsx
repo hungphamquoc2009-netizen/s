@@ -12,6 +12,7 @@ export default function AdminDashboard() {
   const [users, setUsers] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [packages, setPackages] = useState<any[]>([]);
+  const [userPackages, setUserPackages] = useState<any[]>([]); // Dữ liệu nạp (Gói đầu tư đã mua)
   const [isLoading, setIsLoading] = useState(true);
 
   const [events, setEvents] = useState<any[]>([]);
@@ -23,7 +24,7 @@ export default function AdminDashboard() {
   const [editingUser, setEditingUser] = useState<any>(null);
   const [newBankName, setNewBankName] = useState('');
   const [newBankAccount, setNewBankAccount] = useState('');
-  const [newAccountName, setNewAccountName] = useState(''); // THÊM STATE CHỦ TÀI KHOẢN
+  const [newAccountName, setNewAccountName] = useState(''); 
 
   const [isPackageModalOpen, setIsPackageModalOpen] = useState(false);
   const [editingPackage, setEditingPackage] = useState<any>(null);
@@ -41,6 +42,14 @@ export default function AdminDashboard() {
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Hàm xử lý tên ngân hàng cho chuẩn VietQR (Lấy mã trong ngoặc)
+  const getBankCode = (fullName: string) => {
+    if (!fullName) return '';
+    const match = fullName.match(/\(([^)]+)\)/);
+    if (match) return match[1].trim(); // Lấy chữ trong ngoặc, vd: VCB, TCB
+    return fullName.trim().replace(/\s+/g, ''); // Fallback
+  };
+
   const loadData = async (isBackground = false) => {
     if (!isBackground) setIsLoading(true);
     try {
@@ -52,6 +61,10 @@ export default function AdminDashboard() {
 
         const { data: pkgs } = await supabase.from('packages').select('*').order('created_at', { ascending: true });
         if (pkgs) setPackages(pkgs);
+
+        // Lấy lịch sử mua gói (Chính là lịch sử Nạp tiền)
+        const { data: uPkgs } = await supabase.from('user_packages').select('*').order('purchased_at', { ascending: false });
+        if (uPkgs) setUserPackages(uPkgs);
 
         const { data: evts } = await supabase.from('events').select('*').order('created_at', { ascending: false });
         if (evts) setEvents(evts);
@@ -80,6 +93,9 @@ export default function AdminDashboard() {
 
     const packageSubscription = supabase.channel('public-packages-changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'packages' }, () => loadData(true)).subscribe();
+        
+    const uPkgSubscription = supabase.channel('public-user-packages-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'user_packages' }, () => loadData(true)).subscribe();
 
     const eventSubscription = supabase.channel('public-events-changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => loadData(true)).subscribe();
@@ -91,6 +107,7 @@ export default function AdminDashboard() {
         supabase.removeChannel(profileSubscription);
         supabase.removeChannel(transactionSubscription);
         supabase.removeChannel(packageSubscription);
+        supabase.removeChannel(uPkgSubscription);
         supabase.removeChannel(eventSubscription);
         supabase.removeChannel(lbSubscription);
     };
@@ -132,7 +149,7 @@ export default function AdminDashboard() {
     setEditingUser(user);
     setNewBankName(user.bank_name || '');
     setNewBankAccount(user.bank_account || '');
-    setNewAccountName(user.account_name || ''); // SET TÊN CTK CŨ
+    setNewAccountName(user.account_name || ''); 
     setIsEditUserOpen(true);
   };
 
@@ -140,7 +157,7 @@ export default function AdminDashboard() {
     await supabase.from('profiles').update({
       bank_name: newBankName,
       bank_account: newBankAccount,
-      account_name: newAccountName // LƯU TÊN CTK MỚI
+      account_name: newAccountName 
     }).eq('id', editingUser.id);
     alert('Cập nhật thông tin ngân hàng thành công!');
     setIsEditUserOpen(false);
@@ -262,24 +279,32 @@ export default function AdminDashboard() {
     await loadData(true);
   };
 
+  // Tính toán Thống kê Tổng quan (Chuẩn hóa)
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const overviewStats = transactions.reduce((acc, tx) => {
-      if (tx.status === 'success') {
+  let todayDeposits = 0;
+  let totalDeposits = 0;
+  let todayWithdrawals = 0;
+  let totalWithdrawals = 0;
+
+  // Lọc rút tiền từ Transactions
+  transactions.forEach(tx => {
+      if (tx.status === 'success' && tx.type === 'rut_tien') {
           const txDate = new Date(tx.created_at);
           const isToday = txDate >= today;
-          
-          if (tx.type === 'nap_tien') {
-              acc.totalDeposits += tx.amount || 0;
-              if (isToday) acc.todayDeposits += tx.amount || 0;
-          } else if (tx.type === 'rut_tien') {
-              acc.totalWithdrawals += tx.amount || 0;
-              if (isToday) acc.todayWithdrawals += tx.amount || 0;
-          }
+          totalWithdrawals += tx.amount || 0;
+          if (isToday) todayWithdrawals += tx.amount || 0;
       }
-      return acc;
-  }, { todayDeposits: 0, todayWithdrawals: 0, totalDeposits: 0, totalWithdrawals: 0 });
+  });
+
+  // Lọc nạp tiền (thực chất là mua gói) từ User_packages
+  userPackages.forEach(pkg => {
+      const pkgDate = new Date(pkg.purchased_at || pkg.created_at);
+      const isToday = pkgDate >= today;
+      totalDeposits += pkg.invested_amount || 0;
+      if (isToday) todayDeposits += pkg.invested_amount || 0;
+  });
 
   const handleSort = (key: 'totalDeposit' | 'totalWithdrawal') => {
     let direction: 'asc' | 'desc' = 'desc';
@@ -287,10 +312,14 @@ export default function AdminDashboard() {
     setSortConfig({ key, direction });
   };
 
+  // Tính tổng nạp/rút cho từng User ở Tab Khách hàng
   let processedUsers = users.map(u => {
+      const uPkgs = userPackages.filter(p => p.user_id === u.id);
       const userTxs = transactions.filter(t => t.user_id === u.id && t.status === 'success');
-      const totalDeposit = userTxs.filter(t => t.type === 'nap_tien').reduce((sum, t) => sum + (t.amount || 0), 0);
+      
+      const totalDeposit = uPkgs.reduce((sum, p) => sum + (p.invested_amount || 0), 0);
       const totalWithdrawal = userTxs.filter(t => t.type === 'rut_tien').reduce((sum, t) => sum + (t.amount || 0), 0);
+      
       return { ...u, totalDeposit, totalWithdrawal, hasDeposited: totalDeposit > 0 };
   });
 
@@ -339,7 +368,7 @@ export default function AdminDashboard() {
             <Clock className="w-5 h-5" /> Duyệt Rút tiền
           </button>
           <button onClick={() => setActiveTab('deposits')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${activeTab === 'deposits' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'hover:bg-slate-800'}`}>
-            <ArrowDownToLine className="w-5 h-5" /> Lịch sử Nạp
+            <ArrowDownToLine className="w-5 h-5" /> Lịch sử Nạp (Mua gói)
           </button>
           <button onClick={() => setActiveTab('withdrawals')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${activeTab === 'withdrawals' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'hover:bg-slate-800'}`}>
             <ArrowUpFromLine className="w-5 h-5" /> Lịch sử Rút
@@ -372,7 +401,7 @@ export default function AdminDashboard() {
             {activeTab === 'users' && 'Danh sách Khách hàng'}
             {activeTab === 'packages' && 'Cấu hình Gói đầu tư'}
             {activeTab === 'approvals' && 'Yêu cầu Rút tiền đang chờ'}
-            {activeTab === 'deposits' && 'Lịch sử Nạp tiền'}
+            {activeTab === 'deposits' && 'Lịch sử Nạp tiền (Mua gói)'}
             {activeTab === 'withdrawals' && 'Lịch sử Rút tiền'}
             {activeTab === 'events' && 'Quản lý Sự kiện & Thông báo'}
             {activeTab === 'leaderboards' && 'Cấu hình Bảng Xếp Hạng'}
@@ -401,19 +430,19 @@ export default function AdminDashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
                     <p className="text-sm font-bold text-slate-500 uppercase">Khách Nạp Hôm Nay</p>
-                    <h3 className="text-2xl font-black text-emerald-600 mt-2">+{overviewStats.todayDeposits.toLocaleString('vi-VN')} ₫</h3>
+                    <h3 className="text-2xl font-black text-emerald-600 mt-2">+{todayDeposits.toLocaleString('vi-VN')} ₫</h3>
                 </div>
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
                     <p className="text-sm font-bold text-slate-500 uppercase">Khách Rút Hôm Nay</p>
-                    <h3 className="text-2xl font-black text-rose-600 mt-2">-{overviewStats.todayWithdrawals.toLocaleString('vi-VN')} ₫</h3>
+                    <h3 className="text-2xl font-black text-rose-600 mt-2">-{todayWithdrawals.toLocaleString('vi-VN')} ₫</h3>
                 </div>
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
                     <p className="text-sm font-bold text-slate-500 uppercase">Tổng Nạp (All Time)</p>
-                    <h3 className="text-2xl font-black text-emerald-600 mt-2">+{overviewStats.totalDeposits.toLocaleString('vi-VN')} ₫</h3>
+                    <h3 className="text-2xl font-black text-emerald-600 mt-2">+{totalDeposits.toLocaleString('vi-VN')} ₫</h3>
                 </div>
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
                     <p className="text-sm font-bold text-slate-500 uppercase">Tổng Rút (All Time)</p>
-                    <h3 className="text-2xl font-black text-rose-600 mt-2">-{overviewStats.totalWithdrawals.toLocaleString('vi-VN')} ₫</h3>
+                    <h3 className="text-2xl font-black text-rose-600 mt-2">-{totalWithdrawals.toLocaleString('vi-VN')} ₫</h3>
                 </div>
             </div>
         )}
@@ -643,14 +672,14 @@ export default function AdminDashboard() {
                               <div className="shrink-0 relative group">
                                   {/* Mã QR nhỏ */}
                                   <img 
-                                      src={`https://img.vietqr.io/image/${t.bank_name.trim().replace(/\s+/g, '')}-${t.bank_account.trim()}-qr_only.png?amount=${t.amount || 0}&addInfo=Thanh toan rut tien&accountName=${encodeURIComponent(t.account_name || '')}`}
+                                      src={`https://img.vietqr.io/image/${getBankCode(t.bank_name)}-${t.bank_account.trim()}-qr_only.png?amount=${t.amount || 0}&addInfo=Thanh toan rut tien&accountName=${encodeURIComponent(t.account_name || '')}`}
                                       alt="QR"
                                       className="w-12 h-12 object-contain bg-white border border-slate-200 rounded-lg p-1 shadow-sm cursor-pointer"
                                   />
                                   {/* Mã QR Phóng To Khi Hover */}
                                   <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 hidden group-hover:block z-50">
                                       <img 
-                                          src={`https://img.vietqr.io/image/${t.bank_name.trim().replace(/\s+/g, '')}-${t.bank_account.trim()}-qr_only.png?amount=${t.amount || 0}&addInfo=Thanh toan rut tien&accountName=${encodeURIComponent(t.account_name || '')}`}
+                                          src={`https://img.vietqr.io/image/${getBankCode(t.bank_name)}-${t.bank_account.trim()}-qr_only.png?amount=${t.amount || 0}&addInfo=Thanh toan rut tien&accountName=${encodeURIComponent(t.account_name || '')}`}
                                           alt="QR Zoom"
                                           className="w-56 h-56 max-w-none object-contain bg-white border border-slate-200 rounded-2xl p-3 shadow-2xl"
                                       />
@@ -690,20 +719,23 @@ export default function AdminDashboard() {
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
                   <th className="p-4 font-semibold">User ID</th>
-                  <th className="p-4 font-semibold text-blue-600">Số tiền nạp (VNĐ)</th>
+                  <th className="p-4 font-semibold text-blue-600">Số tiền nạp/mua (VNĐ)</th>
                   <th className="p-4 font-semibold">Thời gian</th>
-                  <th className="p-4 font-semibold">Trạng thái</th>
+                  <th className="p-4 font-semibold">Gói đầu tư</th>
                 </tr>
               </thead>
               <tbody className="text-sm">
-                {transactions.filter(t => t.type === 'nap_tien').map(t => (
-                  <tr key={t.id} className="border-b border-slate-100 hover:bg-slate-50">
-                    <td className="p-4 truncate max-w-[200px] text-slate-500">{t.user_id}</td>
-                    <td className="p-4 font-bold text-blue-600">+{t.amount?.toLocaleString('vi-VN')} ₫</td>
-                    <td className="p-4 text-slate-500">{new Date(t.created_at).toLocaleString('vi-VN')}</td>
+                {userPackages.length === 0 && (
+                    <tr><td colSpan={4} className="p-8 text-center text-slate-500">Chưa có lịch sử nạp tiền/mua gói nào.</td></tr>
+                )}
+                {userPackages.map(pkg => (
+                  <tr key={pkg.id} className="border-b border-slate-100 hover:bg-slate-50">
+                    <td className="p-4 truncate max-w-[200px] text-slate-500">{pkg.user_id}</td>
+                    <td className="p-4 font-bold text-blue-600">+{pkg.invested_amount?.toLocaleString('vi-VN')} ₫</td>
+                    <td className="p-4 text-slate-500">{new Date(pkg.purchased_at || pkg.created_at).toLocaleString('vi-VN')}</td>
                     <td className="p-4">
-                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${t.status === 'success' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>
-                            {t.status === 'success' ? 'Thành công' : t.status}
+                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-600">
+                            {pkg.package_name} (Thành công)
                         </span>
                     </td>
                   </tr>
