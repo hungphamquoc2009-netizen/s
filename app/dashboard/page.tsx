@@ -5,7 +5,7 @@ import {
   Bell, Search, User, ArrowDownToLine, ArrowUpFromLine, 
   TrendingUp, Sparkles, CheckCircle2, Info, AlertTriangle, 
   ChevronRight, Activity, LogOut, X, QrCode, Menu, 
-  Home, Users, Calendar, Trophy, HeadphonesIcon, Copy, Link as LinkIcon, Package, Gift, Wallet, Clock
+  Home, Users, Calendar, Trophy, HeadphonesIcon, Copy, Link as LinkIcon, Package, Gift, Wallet, Clock, Shield
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
@@ -28,6 +28,9 @@ export default function FintechDashboard() {
 
   const [userName, setUserName] = useState<string>('Đang tải...');
   const [userId, setUserId] = useState<string>('');
+  const [userEmail, setUserEmail] = useState<string>('');
+  const [joinDate, setJoinDate] = useState<string>('');
+  
   const [balance, setBalance] = useState<number>(0);
   const [txHistory, setTxHistory] = useState<any[]>([]);
   const [packages, setPackages] = useState<any[]>([]); 
@@ -50,6 +53,12 @@ export default function FintechDashboard() {
   const [myPackages, setMyPackages] = useState<any[]>([]);
   const [currentTime, setCurrentTime] = useState(new Date());
 
+  // States cho tính năng Đổi mật khẩu
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passMessage, setPassMessage] = useState<{text: string, type: 'success' | 'error'} | null>(null);
+  const [isUpdatingPass, setIsUpdatingPass] = useState(false);
+
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
@@ -65,11 +74,15 @@ export default function FintechDashboard() {
     
     const email = session.user.email || '';
     setUserName(email.split('@')[0]);
+    setUserEmail(email);
     setUserId(session.user.id);
+    if (session.user.created_at) {
+        setJoinDate(new Date(session.user.created_at).toLocaleDateString('vi-VN'));
+    }
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('balance, bank_account, bank_name, has_purchased_package')
+      .select('balance, bank_account, bank_name, has_purchased_package, created_at')
       .eq('id', session.user.id)
       .single();
       
@@ -78,6 +91,7 @@ export default function FintechDashboard() {
         setBankAccount(profile.bank_account);
         setBankName(profile.bank_name);
         setHasPurchasedPackage(profile.has_purchased_package || false);
+        if (!session.user.created_at && profile.created_at) setJoinDate(new Date(profile.created_at).toLocaleDateString('vi-VN'));
     }
 
     const { data: myPkgs } = await supabase
@@ -140,7 +154,6 @@ export default function FintechDashboard() {
       setIsWithdrawOpen(true);
   };
 
-  // CẬP NHẬT LOGIC RÚT TIỀN TẠI ĐÂY
   const handleWithdraw = async (e: React.FormEvent) => {
       e.preventDefault();
       const numAmount = parseInt(amount.replace(/,/g, ''));
@@ -151,27 +164,15 @@ export default function FintechDashboard() {
       setIsProcessing(true);
 
       try {
-          // 1. Trừ tiền ngay lập tức trên DB để chống spam lệnh
           const newBalance = balance - numAmount;
-          const { error: profileError } = await supabase
-              .from('profiles')
-              .update({ balance: newBalance })
-              .eq('id', userId);
-              
+          const { error: profileError } = await supabase.from('profiles').update({ balance: newBalance }).eq('id', userId);
           if (profileError) throw profileError;
 
-          // 2. Tạo lệnh gửi lên Admin
           const { error: txError } = await supabase.from('transactions').insert({
-              user_id: userId, 
-              type: 'rut_tien', 
-              amount: numAmount, 
-              status: 'pending', 
-              bank_account: bankAccount, 
-              bank_name: bankName
+              user_id: userId, type: 'rut_tien', amount: numAmount, status: 'pending', bank_account: bankAccount, bank_name: bankName
           });
 
           if (txError) {
-              // Hoàn tiền lại nếu tạo lệnh bị lỗi
               await supabase.from('profiles').update({ balance: balance }).eq('id', userId);
               throw txError;
           }
@@ -211,6 +212,32 @@ export default function FintechDashboard() {
           }
       } catch (err: any) {
           alert('Lỗi hệ thống: ' + err.message);
+      }
+  };
+
+  // Logic Đổi mật khẩu
+  const handleUpdatePassword = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setPassMessage(null);
+      if (newPassword !== confirmPassword) {
+          setPassMessage({ text: 'Mật khẩu xác nhận không khớp!', type: 'error' });
+          return;
+      }
+      if (newPassword.length < 6) {
+          setPassMessage({ text: 'Mật khẩu phải có ít nhất 6 ký tự!', type: 'error' });
+          return;
+      }
+      setIsUpdatingPass(true);
+      try {
+          const { error } = await supabase.auth.updateUser({ password: newPassword });
+          if (error) throw error;
+          setPassMessage({ text: 'Cập nhật mật khẩu thành công!', type: 'success' });
+          setNewPassword('');
+          setConfirmPassword('');
+      } catch (err: any) {
+          setPassMessage({ text: err.message || 'Lỗi cập nhật mật khẩu.', type: 'error' });
+      } finally {
+          setIsUpdatingPass(false);
       }
   };
 
@@ -273,6 +300,7 @@ export default function FintechDashboard() {
           ))}
           <div className="pt-4 mt-4 border-t border-slate-100">
             <a href={cskhLink} target="_blank" className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-slate-500 hover:bg-slate-50"><HeadphonesIcon className="w-5 h-5 text-slate-400" /> CSKH / Hỗ trợ</a>
+            <button onClick={() => { setActiveTab('profile'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${activeTab === 'profile' ? 'bg-[#1E6EFF]/10 text-[#1E6EFF]' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}`}><Shield className={`w-5 h-5 ${activeTab === 'profile' ? 'text-[#1E6EFF]' : 'text-slate-400'}`} /> Thông tin cá nhân</button>
           </div>
         </div>
         <div className="p-4 border-t border-slate-100">
@@ -284,10 +312,10 @@ export default function FintechDashboard() {
         <header className="h-16 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-4 sm:px-6 lg:px-8 shrink-0 z-30">
           <div className="flex items-center gap-4">
             <button className="md:hidden p-2 -ml-2 text-slate-600 hover:bg-slate-100 rounded-lg" onClick={() => setIsMobileMenuOpen(true)}><Menu className="w-6 h-6" /></button>
-            <h2 className="text-lg font-bold text-slate-800 capitalize hidden sm:block">{navItems.find(i => i.id === activeTab)?.label}</h2>
+            <h2 className="text-lg font-bold text-slate-800 capitalize hidden sm:block">{activeTab === 'profile' ? 'Thông tin cá nhân' : navItems.find(i => i.id === activeTab)?.label}</h2>
           </div>
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-full">
+            <div className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-full cursor-pointer hover:bg-slate-200 transition-colors" onClick={() => setActiveTab('profile')}>
               <User className="w-4 h-4 text-slate-500" />
               <span className="text-sm font-medium text-slate-700">{userName}</span>
             </div>
@@ -507,6 +535,32 @@ export default function FintechDashboard() {
                     </div>
                   </div>
                 </div>
+
+                <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-100">
+                    <h3 className="text-xl font-bold text-slate-900 mb-6">Chi tiết thành viên đã mời</h3>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 text-sm">
+                                    <th className="p-4 font-semibold">Tài khoản (ID)</th><th className="p-4 font-semibold text-center">Cấp độ</th><th className="p-4 font-semibold">Ngày tham gia</th>
+                                </tr>
+                            </thead>
+                            <tbody className="text-sm">
+                                {referralList.length === 0 ? (
+                                    <tr><td colSpan={3} className="p-6 text-center text-slate-500">Chưa có thành viên nào đăng ký qua link của bạn.</td></tr>
+                                ) : (
+                                    referralList.map((user) => (
+                                        <tr key={user.id} className="border-b border-slate-50 hover:bg-slate-50/50">
+                                            <td className="p-4 font-medium text-slate-800">User_{user.id.substring(0, 8)}...</td>
+                                            <td className="p-4 text-center"><span className={`px-3 py-1 rounded-full font-bold text-xs ${user.level === 'F1' ? 'bg-blue-100 text-blue-700' : user.level === 'F2' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{user.level}</span></td>
+                                            <td className="p-4 text-slate-500">{user.created_at ? new Date(user.created_at).toLocaleDateString('vi-VN') : 'Không rõ'}</td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
               </div>
             )}
 
@@ -565,6 +619,60 @@ export default function FintechDashboard() {
                       </tbody>
                     </table>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* ================= TAB: THÔNG TIN CÁ NHÂN ================= */}
+            {activeTab === 'profile' && (
+              <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-300">
+                <h2 className="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-2">
+                  <Shield className="w-6 h-6 text-[#1E6EFF]" /> Thông tin cá nhân & Bảo mật
+                </h2>
+                
+                {/* Thông tin tài khoản */}
+                <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-100">
+                   <h3 className="text-xl font-bold text-slate-900 mb-6 border-b border-slate-100 pb-4">Thông tin tài khoản</h3>
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                     <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                       <label className="text-sm text-slate-500 font-medium block mb-1">Tên hiển thị</label>
+                       <p className="text-lg font-bold text-slate-800">{userName}</p>
+                     </div>
+                     <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                       <label className="text-sm text-slate-500 font-medium block mb-1">Email đăng ký</label>
+                       <p className="text-lg font-bold text-slate-800">{userEmail}</p>
+                     </div>
+                     <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                       <label className="text-sm text-slate-500 font-medium block mb-1">Ngày tham gia</label>
+                       <p className="text-lg font-bold text-slate-800">{joinDate || 'Đang cập nhật...'}</p>
+                     </div>
+                   </div>
+                </div>
+
+                {/* Form Đổi Mật Khẩu */}
+                <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-100">
+                   <h3 className="text-xl font-bold text-slate-900 mb-6 border-b border-slate-100 pb-4">Đổi mật khẩu</h3>
+                   <form onSubmit={handleUpdatePassword} className="space-y-5 max-w-md">
+                     <div>
+                       <label className="block text-sm font-bold text-slate-700 mb-2">Mật khẩu mới</label>
+                       <input type="password" required value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Nhập ít nhất 6 ký tự" className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3.5 focus:outline-none focus:ring-2 focus:ring-[#1E6EFF]" />
+                     </div>
+                     <div>
+                       <label className="block text-sm font-bold text-slate-700 mb-2">Xác nhận mật khẩu mới</label>
+                       <input type="password" required value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Nhập lại mật khẩu mới" className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3.5 focus:outline-none focus:ring-2 focus:ring-[#1E6EFF]" />
+                     </div>
+                     
+                     {passMessage && (
+                       <div className={`p-4 rounded-xl text-sm font-bold flex items-center gap-2 ${passMessage.type === 'success' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-rose-50 text-rose-600 border border-rose-100'}`}>
+                         {passMessage.type === 'success' && <CheckCircle2 className="w-5 h-5" />}
+                         {passMessage.text}
+                       </div>
+                     )}
+                     
+                     <button type="submit" disabled={isUpdatingPass} className="w-full py-4 mt-2 bg-slate-900 text-white font-bold rounded-xl shadow-lg hover:bg-slate-800 hover:-translate-y-0.5 transition-all disabled:opacity-70">
+                       {isUpdatingPass ? 'Đang xử lý...' : 'Cập nhật mật khẩu'}
+                     </button>
+                   </form>
                 </div>
               </div>
             )}
