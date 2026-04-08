@@ -106,7 +106,7 @@ export default function LinkBankPage() {
       
       // Chuyển hướng về trang chủ sau 1.5 giây
       setTimeout(() => {
-        window.location.href = '/'; // Hoặc '/dashboard' tùy vào đường dẫn trang chủ của bạn
+        window.location.href = 'dashboard'; // Hoặc '/dashboard' tùy vào đường dẫn trang chủ của bạn
       }, 1500);
 
     } catch (err: any) {
