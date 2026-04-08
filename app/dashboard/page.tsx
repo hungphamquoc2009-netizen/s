@@ -5,7 +5,7 @@ import {
   Bell, Search, User, ArrowDownToLine, ArrowUpFromLine, 
   TrendingUp, Sparkles, CheckCircle2, Info, AlertTriangle, 
   ChevronRight, Activity, LogOut, X, QrCode, Menu, 
-  Home, Users, Calendar, Trophy, HeadphonesIcon, Copy, Link as LinkIcon
+  Home, Users, Calendar, Trophy, HeadphonesIcon, Copy, Link as LinkIcon, Package
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
@@ -201,6 +201,7 @@ export default function FintechDashboard() {
   // --- NAVIGATION CONFIG ---
   const navItems = [
     { id: 'home', label: 'Trang chủ', icon: Home },
+    { id: 'packages', label: 'Gói đầu tư', icon: Package },
     { id: 'referral', label: 'Giới thiệu', icon: Users },
     { id: 'events', label: 'Sự kiện', icon: Calendar },
     { id: 'leaderboard', label: 'Đua top', icon: Trophy },
@@ -393,49 +394,6 @@ export default function FintechDashboard() {
                       </ResponsiveContainer>
                     </div>
                   </div>
-
-                  <div>
-                    <h3 className="font-bold text-lg text-slate-800 mb-4">Available Packages</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      {packages.map((pkg, idx) => {
-                        const defaultFeatures = ['Lợi nhuận ổn định', 'Rút tiền linh hoạt', 'Hỗ trợ tiêu chuẩn'];
-                        const isHighlight = idx === 1;
-
-                        return (
-                          <div key={pkg.id || idx} className={`bg-white rounded-2xl p-6 shadow-sm border transition-all duration-300 hover:shadow-xl ${isHighlight ? 'border-[#1E6EFF] ring-2 ring-[#1E6EFF]/20 md:-translate-y-2 relative' : 'border-slate-100 hover:-translate-y-1'}`}>
-                            {isHighlight && (
-                              <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#1E6EFF] text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">Most Popular</span>
-                            )}
-                            <h4 className="text-slate-500 font-medium">{pkg.name}</h4>
-                            <div className="my-4">
-                              <span className="text-4xl font-extrabold text-slate-900">{pkg.return_rate}</span>
-                              <span className="text-slate-500 font-medium">/yr</span>
-                            </div>
-                            <div className="space-y-3 mb-6 text-sm">
-                              <div className="flex justify-between border-b border-slate-50 pb-2">
-                                <span className="text-slate-500">Limits</span>
-                                <span className="font-bold text-slate-800">{pkg.limits}</span>
-                              </div>
-                              <ul className="space-y-2 mt-4">
-                                {defaultFeatures.map((feature, fIdx) => (
-                                  <li key={fIdx} className="flex items-center gap-2 text-slate-600">
-                                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                                    <span>{feature}</span>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                            <button 
-                              onClick={() => handlePaymentRedirect(pkg.name)}
-                              className={`w-full py-3 rounded-xl font-bold transition-all ${isHighlight ? 'bg-[#1E6EFF] text-white hover:bg-blue-600' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
-                            >
-                              Thanh toán
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
                 </div>
 
                 <div className="xl:col-span-4 space-y-6">
@@ -467,6 +425,58 @@ export default function FintechDashboard() {
                     </div>
                   </div>
                 </div> 
+              </div>
+            )}
+
+            {/* ================= TAB: GÓI ĐẦU TƯ ================= */}
+            {activeTab === 'packages' && (
+              <div className="max-w-7xl animate-in fade-in duration-300">
+                <h2 className="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-2">
+                  <Package className="w-6 h-6 text-[#1E6EFF]" /> Danh sách Gói đầu tư
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {packages.length === 0 ? (
+                      <p className="text-slate-500 bg-white p-6 rounded-2xl border border-slate-100 text-center col-span-3">Hiện tại chưa có gói đầu tư nào.</p>
+                  ) : (
+                      packages.map((pkg, idx) => {
+                        const defaultFeatures = ['Lợi nhuận ổn định', 'Rút tiền linh hoạt', 'Hỗ trợ tiêu chuẩn'];
+                        const isHighlight = pkg.badge && pkg.badge.trim() !== '';
+
+                        return (
+                          <div key={pkg.id || idx} className={`bg-white rounded-2xl p-6 shadow-sm border transition-all duration-300 hover:shadow-xl ${isHighlight ? 'border-[#1E6EFF] ring-2 ring-[#1E6EFF]/20 md:-translate-y-2 relative' : 'border-slate-100 hover:-translate-y-1'}`}>
+                            {isHighlight && (
+                              <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#1E6EFF] text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">{pkg.badge}</span>
+                            )}
+                            <h4 className="text-slate-500 font-medium">{pkg.name}</h4>
+                            <div className="my-4">
+                              <span className="text-4xl font-extrabold text-slate-900">{pkg.return_rate}</span>
+                              <span className="text-slate-500 font-medium">/yr</span>
+                            </div>
+                            <div className="space-y-3 mb-6 text-sm">
+                              <div className="flex justify-between border-b border-slate-50 pb-2">
+                                <span className="text-slate-500">Limits</span>
+                                <span className="font-bold text-slate-800">{pkg.limits}</span>
+                              </div>
+                              <ul className="space-y-2 mt-4">
+                                {defaultFeatures.map((feature, fIdx) => (
+                                  <li key={fIdx} className="flex items-center gap-2 text-slate-600">
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                                    <span>{feature}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                            <button 
+                              onClick={() => handlePaymentRedirect(pkg.name)}
+                              className={`w-full py-3 rounded-xl font-bold transition-all ${isHighlight ? 'bg-[#1E6EFF] text-white hover:bg-blue-600' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
+                            >
+                              Thanh toán
+                            </button>
+                          </div>
+                        );
+                      })
+                  )}
+                </div>
               </div>
             )}
 

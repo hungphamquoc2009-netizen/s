@@ -27,7 +27,7 @@ export default function AdminDashboard() {
 
   const [isPackageModalOpen, setIsPackageModalOpen] = useState(false);
   const [editingPackage, setEditingPackage] = useState<any>(null);
-  const [pkgForm, setPkgForm] = useState({ name: '', return_rate: '', limits: '', duration: '' });
+  const [pkgForm, setPkgForm] = useState({ name: '', return_rate: '', limits: '', duration: '', badge: '' });
 
   // --- NEW MODAL STATES ---
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
@@ -154,13 +154,13 @@ export default function AdminDashboard() {
   // --- LOGIC THÊM & SỬA GÓI ĐẦU TƯ ---
   const openAddPackage = () => {
     setEditingPackage(null);
-    setPkgForm({ name: '', return_rate: '', limits: '', duration: '' });
+    setPkgForm({ name: '', return_rate: '', limits: '', duration: '', badge: '' });
     setIsPackageModalOpen(true);
   };
 
   const openEditPackage = (pkg: any) => {
     setEditingPackage(pkg);
-    setPkgForm({ name: pkg.name, return_rate: pkg.return_rate, limits: pkg.limits, duration: pkg.duration });
+    setPkgForm({ name: pkg.name, return_rate: pkg.return_rate, limits: pkg.limits, duration: pkg.duration, badge: pkg.badge || '' });
     setIsPackageModalOpen(true);
   };
 
@@ -524,7 +524,7 @@ export default function AdminDashboard() {
                   <th className="p-4 font-semibold">Tên gói</th>
                   <th className="p-4 font-semibold">Lợi nhuận</th>
                   <th className="p-4 font-semibold">Mức giá</th>
-                  <th className="p-4 font-semibold">Thời gian</th>
+                  <th className="p-4 font-semibold">Tag nổi bật</th>
                   <th className="p-4 font-semibold text-center">Hành động</th>
                 </tr>
               </thead>
@@ -535,7 +535,9 @@ export default function AdminDashboard() {
                     <td className="p-4 font-bold text-slate-800">{p.name}</td>
                     <td className="p-4 font-bold text-emerald-500">{p.return_rate}</td>
                     <td className="p-4 text-slate-600 font-medium">{p.limits}</td>
-                    <td className="p-4 text-slate-600">{p.duration}</td>
+                    <td className="p-4">
+                        {p.badge ? <span className="bg-[#1E6EFF] text-white text-xs px-2 py-1 rounded font-bold uppercase">{p.badge}</span> : <span className="text-slate-400 italic text-xs">Không có</span>}
+                    </td>
                     <td className="p-4 text-center">
                       <div className="flex justify-center gap-2">
                           <button onClick={() => openEditPackage(p)} className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 font-medium transition-colors">
@@ -802,6 +804,10 @@ export default function AdminDashboard() {
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-2">Thời gian (Duration)</label>
                         <input type="text" placeholder="VD: 24 Months" value={pkgForm.duration} onChange={e => setPkgForm({...pkgForm, duration: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Tag nổi bật (Badge) - Bỏ trống nếu không cần</label>
+                        <input type="text" placeholder="VD: Most Popular, Khuyên Dùng..." value={pkgForm.badge} onChange={e => setPkgForm({...pkgForm, badge: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     </div>
                 </div>
                 <button onClick={savePackageInfo} className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all">{editingPackage ? 'Lưu Thay Đổi' : 'Tạo Gói Mới'}</button>
