@@ -26,19 +26,16 @@ export default function FintechDashboard() {
   const [userId, setUserId] = useState<string>('');
   const [balance, setBalance] = useState<number>(0);
   const [txHistory, setTxHistory] = useState<any[]>([]);
-  const [packages, setPackages] = useState<any[]>([]); // Đã thêm state lưu gói đầu tư thật
+  const [packages, setPackages] = useState<any[]>([]); 
   
-  // States kiểm tra điều kiện rút tiền
   const [bankAccount, setBankAccount] = useState<string | null>(null);
   const [bankName, setBankName] = useState<string | null>(null);
   const [hasPurchasedPackage, setHasPurchasedPackage] = useState<boolean>(false);
 
-  // States cho Popup Rút tiền
   const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
   const [amount, setAmount] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Load User, Balance, Lịch sử và Các gói đầu tư
   useEffect(() => {
     const loadData = async () => {
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
@@ -52,7 +49,6 @@ export default function FintechDashboard() {
       setUserName(email.split('@')[0]);
       setUserId(session.user.id);
 
-      // 1. Lấy thông tin user (Số dư thật, TK ngân hàng, Trạng thái gói)
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('balance, bank_account, bank_name, has_purchased_package')
@@ -68,7 +64,6 @@ export default function FintechDashboard() {
           setBalance(0);
       }
 
-      // 2. Lấy lịch sử giao dịch (Hiển thị 3 cái gần nhất)
       const { data: txs, error: txError } = await supabase
         .from('transactions')
         .select('*')
@@ -80,7 +75,6 @@ export default function FintechDashboard() {
           setTxHistory(txs);
       }
 
-      // 3. Lấy danh sách Gói Đầu Tư thật từ Supabase
       const { data: pkgs, error: pkgsError } = await supabase
         .from('packages')
         .select('*')
@@ -98,25 +92,18 @@ export default function FintechDashboard() {
     window.location.href = '/login';
   };
 
-  // --- HÀM KIỂM TRA TRƯỚC KHI MỞ POPUP RÚT TIỀN ---
   const handleOpenWithdraw = () => {
-      // 1. Kiểm tra đã mua gói chưa
       if (!hasPurchasedPackage) {
           alert("Bạn cần phải mua ít nhất 1 gói để có thể thực hiện rút tiền!");
           return;
       }
-
-      // 2. Kiểm tra đã liên kết ngân hàng chưa
       if (!bankAccount) {
           window.location.href = '/lien-ket-ngan-hang';
           return;
       }
-
-      // Đủ điều kiện -> Mở popup
       setIsWithdrawOpen(true);
   };
 
-  // --- HÀM XỬ LÝ RÚT TIỀN ---
   const handleWithdraw = async (e: React.FormEvent) => {
       e.preventDefault();
       const numAmount = parseInt(amount.replace(/,/g, ''));
@@ -125,7 +112,6 @@ export default function FintechDashboard() {
           alert("Số tiền rút tối thiểu là 30,000 VNĐ!");
           return;
       }
-
       if (numAmount > balance) {
           alert("Số dư không đủ để thực hiện giao dịch này!");
           return;
@@ -133,7 +119,6 @@ export default function FintechDashboard() {
 
       setIsProcessing(true);
 
-      // 1. Lưu giao dịch 'pending' vào DB, kẹp thêm thông tin ngân hàng đã liên kết
       await supabase.from('transactions').insert({
           user_id: userId,
           type: 'rut_tien',
@@ -149,15 +134,12 @@ export default function FintechDashboard() {
       setAmount('');
   };
 
-  // --- HÀM XỬ LÝ THANH TOÁN GÓI ---
   const handlePaymentRedirect = (packageName: string) => {
-      // Chuyển hướng sang trang thanh toán riêng biệt, truyền tham số gói và URL để quay lại
       window.location.href = `/thanh-toan?package=${encodeURIComponent(packageName)}&returnUrl=/`;
   };
 
   return (
     <div className="min-h-screen bg-[#F5F7FB] font-sans text-slate-800 pb-12">
-      {/* POPUP RÚT TIỀN */}
       {isWithdrawOpen && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl relative animate-in fade-in zoom-in duration-200">
@@ -198,7 +180,6 @@ export default function FintechDashboard() {
         </div>
       )}
 
-      {/* TOP NAVBAR */}
       <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-8">
@@ -217,30 +198,21 @@ export default function FintechDashboard() {
         </div>
       </nav>
 
-      {/* MAIN LAYOUT */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8 grid grid-cols-1 xl:grid-cols-12 gap-8">
-        
-        {/* LEFT COLUMN */}
         <div className="xl:col-span-8 space-y-8">
-          
-          {/* Welcome & Balance */}
           <div>
             <h1 className="text-2xl font-bold text-slate-900 mb-4 capitalize">Welcome back, {userName} 👋</h1>
-            
             <div className="bg-gradient-to-br from-[#1E6EFF] to-blue-500 rounded-2xl p-8 text-white shadow-lg shadow-blue-500/20 relative overflow-hidden">
               <div className="absolute top-0 right-0 -mr-8 -mt-8 w-48 h-48 bg-white/10 rounded-full blur-3xl"></div>
-              
               <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
                 <div>
                   <p className="text-blue-100 text-sm font-medium mb-1">Total Balance</p>
                   <div className="flex items-baseline gap-3">
-                    {/* SỐ DƯ THẬT */}
                     <h2 className="text-4xl md:text-5xl font-extrabold tracking-tight">
                         {balance.toLocaleString('vi-VN')} <span className="text-2xl font-semibold opacity-80">VND</span>
                     </h2>
                   </div>
                 </div>
-                
                 <div className="flex w-full md:w-auto gap-3">
                   <button onClick={handleOpenWithdraw} className="flex-1 md:flex-none bg-blue-600/30 hover:bg-blue-600/50 border border-white/20 text-white px-6 py-3 rounded-xl font-semibold backdrop-blur-sm transition-transform hover:scale-105 flex items-center justify-center gap-2">
                     <ArrowUpFromLine className="w-4 h-4" /> Withdraw
@@ -250,7 +222,6 @@ export default function FintechDashboard() {
             </div>
           </div>
 
-          {/* Chart */}
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
             <h3 className="font-bold text-lg text-slate-800 mb-6">Balance Growth</h3>
             <div className="h-[300px] w-full">
@@ -273,14 +244,12 @@ export default function FintechDashboard() {
             </div>
           </div>
 
-          {/* Available Packages (Dữ liệu thật từ DB) */}
           <div>
             <h3 className="font-bold text-lg text-slate-800 mb-4">Available Packages</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {packages.map((pkg, idx) => {
-                // Đảm bảo không vỡ UI bằng cách chèn tính năng cơ bản mặc định
                 const defaultFeatures = ['Lợi nhuận ổn định', 'Rút tiền linh hoạt', 'Hỗ trợ tiêu chuẩn'];
-                const isHighlight = idx === 1; // Highlight gói ở giữa cho đẹp
+                const isHighlight = idx === 1;
 
                 return (
                   <div key={pkg.id || idx} className={`bg-white rounded-2xl p-6 shadow-sm border transition-all duration-300 hover:shadow-xl ${isHighlight ? 'border-[#1E6EFF] ring-2 ring-[#1E6EFF]/20 md:-translate-y-2 relative' : 'border-slate-100 hover:-translate-y-1'}`}>
@@ -319,10 +288,7 @@ export default function FintechDashboard() {
           </div>
         </div>
 
-        {/* RIGHT COLUMN */}
         <div className="xl:col-span-4 space-y-6">
-
-          {/* Recent Transactions (Lịch sử thật) */}
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
             <h3 className="font-bold text-lg text-slate-800 mb-5">Recent Transactions</h3>
             <div className="space-y-5">
@@ -350,7 +316,6 @@ export default function FintechDashboard() {
               )}
             </div>
           </div>
-
         </div> 
       </main>
     </div>
