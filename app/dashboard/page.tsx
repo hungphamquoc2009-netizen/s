@@ -5,7 +5,7 @@ import {
   Bell, Search, User, ArrowDownToLine, ArrowUpFromLine, 
   TrendingUp, Sparkles, CheckCircle2, Info, AlertTriangle, 
   ChevronRight, Activity, LogOut, X, QrCode, Menu, 
-  Home, Users, Calendar, Trophy, HeadphonesIcon, Copy, Link as LinkIcon, Package, Gift, Wallet, Clock, Shield
+  Home, Users, Calendar, Trophy, HeadphonesIcon, Copy, Link as LinkIcon, Package, Gift, Wallet, Clock, Shield, History
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
@@ -53,7 +53,6 @@ export default function FintechDashboard() {
   const [myPackages, setMyPackages] = useState<any[]>([]);
   const [currentTime, setCurrentTime] = useState(new Date());
 
-  // States cho tính năng Đổi mật khẩu
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passMessage, setPassMessage] = useState<{text: string, type: 'success' | 'error'} | null>(null);
@@ -101,12 +100,13 @@ export default function FintechDashboard() {
       .order('purchased_at', { ascending: false });
     if (myPkgs) setMyPackages(myPkgs);
 
+    // Cập nhật lấy 100 giao dịch mới nhất để hiển thị cho Tab Lịch sử giao dịch
     const { data: txs } = await supabase
       .from('transactions')
       .select('*')
       .eq('user_id', session.user.id)
       .order('created_at', { ascending: false })
-      .limit(5);
+      .limit(100);
     if (txs) setTxHistory(txs);
 
     const { data: pkgs } = await supabase.from('packages').select('*').order('created_at', { ascending: true });
@@ -215,25 +215,17 @@ export default function FintechDashboard() {
       }
   };
 
-  // Logic Đổi mật khẩu
   const handleUpdatePassword = async (e: React.FormEvent) => {
       e.preventDefault();
       setPassMessage(null);
-      if (newPassword !== confirmPassword) {
-          setPassMessage({ text: 'Mật khẩu xác nhận không khớp!', type: 'error' });
-          return;
-      }
-      if (newPassword.length < 6) {
-          setPassMessage({ text: 'Mật khẩu phải có ít nhất 6 ký tự!', type: 'error' });
-          return;
-      }
+      if (newPassword !== confirmPassword) { setPassMessage({ text: 'Mật khẩu xác nhận không khớp!', type: 'error' }); return; }
+      if (newPassword.length < 6) { setPassMessage({ text: 'Mật khẩu phải có ít nhất 6 ký tự!', type: 'error' }); return; }
       setIsUpdatingPass(true);
       try {
           const { error } = await supabase.auth.updateUser({ password: newPassword });
           if (error) throw error;
           setPassMessage({ text: 'Cập nhật mật khẩu thành công!', type: 'success' });
-          setNewPassword('');
-          setConfirmPassword('');
+          setNewPassword(''); setConfirmPassword('');
       } catch (err: any) {
           setPassMessage({ text: err.message || 'Lỗi cập nhật mật khẩu.', type: 'error' });
       } finally {
@@ -253,6 +245,7 @@ export default function FintechDashboard() {
     { id: 'home', label: 'Trang chủ', icon: Home },
     { id: 'assets', label: 'Tài sản của tôi', icon: Wallet },
     { id: 'packages', label: 'Gói đầu tư', icon: Package },
+    { id: 'transactions', label: 'Lịch sử giao dịch', icon: History },
     { id: 'referral', label: 'Giới thiệu', icon: Users },
     { id: 'events', label: 'Sự kiện', icon: Calendar },
     { id: 'leaderboard', label: 'Đua top', icon: Trophy },
@@ -377,7 +370,7 @@ export default function FintechDashboard() {
                       {txHistory.length === 0 ? (
                           <p className="text-sm text-slate-500 text-center py-4">Chưa có giao dịch nào.</p>
                       ) : (
-                          txHistory.map((tx) => (
+                          txHistory.slice(0, 5).map((tx) => (
                           <div key={tx.id} className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
                               <div className={`p-2.5 rounded-xl ${tx.type === 'nap_tien' ? 'text-blue-500 bg-blue-50' : tx.type === 'hoa_hong' || tx.type === 'nhan_lai' ? 'text-emerald-500 bg-emerald-50' : 'text-rose-500 bg-rose-50'}`}>
@@ -404,6 +397,62 @@ export default function FintechDashboard() {
                     </div>
                   </div>
                 </div> 
+              </div>
+            )}
+
+            {/* ================= TAB: LỊCH SỬ GIAO DỊCH ================= */}
+            {activeTab === 'transactions' && (
+              <div className="max-w-5xl mx-auto animate-in fade-in duration-300">
+                <h2 className="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-2">
+                  <History className="w-6 h-6 text-[#1E6EFF]" /> Lịch sử giao dịch
+                </h2>
+                
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 text-sm">
+                          <th className="p-4 font-semibold">Thời gian</th>
+                          <th className="p-4 font-semibold">Loại giao dịch</th>
+                          <th className="p-4 font-semibold">Chi tiết (Bank / Gói)</th>
+                          <th className="p-4 font-semibold text-right">Số tiền (VNĐ)</th>
+                          <th className="p-4 font-semibold text-center">Trạng thái</th>
+                        </tr>
+                      </thead>
+                      <tbody className="text-sm">
+                        {txHistory.length === 0 ? (
+                          <tr><td colSpan={5} className="p-8 text-center text-slate-500">Bạn chưa có lịch sử giao dịch nào.</td></tr>
+                        ) : (
+                          txHistory.map(tx => (
+                            <tr key={tx.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                              <td className="p-4 text-slate-500 font-medium">{new Date(tx.created_at).toLocaleString('vi-VN')}</td>
+                              <td className="p-4 font-medium text-slate-800">
+                                <div className="flex items-center gap-3">
+                                  <div className={`p-2 rounded-lg ${tx.type === 'nap_tien' ? 'text-blue-500 bg-blue-50' : tx.type === 'hoa_hong' || tx.type === 'nhan_lai' ? 'text-emerald-500 bg-emerald-50' : 'text-rose-500 bg-rose-50'}`}>
+                                    {tx.type === 'nap_tien' && <ArrowDownToLine className="w-4 h-4" />}
+                                    {tx.type === 'hoa_hong' && <Gift className="w-4 h-4" />}
+                                    {tx.type === 'nhan_lai' && <TrendingUp className="w-4 h-4" />}
+                                    {tx.type === 'rut_tien' && <ArrowUpFromLine className="w-4 h-4" />}
+                                  </div>
+                                  {tx.type === 'nap_tien' ? 'Nạp tiền' : tx.type === 'hoa_hong' ? 'Hoa hồng' : tx.type === 'nhan_lai' ? 'Nhận lãi' : 'Rút tiền'}
+                                </div>
+                              </td>
+                              <td className="p-4 text-slate-500 max-w-[200px] truncate" title={tx.bank_name}>{tx.bank_name || '-'}</td>
+                              <td className={`p-4 text-right font-bold text-base ${tx.type === 'nap_tien' ? 'text-blue-500' : tx.type === 'hoa_hong' || tx.type === 'nhan_lai' ? 'text-emerald-500' : 'text-slate-800'}`}>
+                                {tx.type === 'nap_tien' || tx.type === 'hoa_hong' || tx.type === 'nhan_lai' ? '+' : '-'}{tx.amount.toLocaleString('vi-VN')}
+                              </td>
+                              <td className="p-4 text-center">
+                                <span className={`px-3 py-1 rounded-full text-xs font-bold ${tx.status === 'success' ? 'bg-emerald-100 text-emerald-700' : tx.status === 'rejected' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>
+                                  {tx.status === 'success' ? 'Thành công' : tx.status === 'rejected' ? 'Bị từ chối' : 'Đang xử lý'}
+                                </span>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -623,14 +672,12 @@ export default function FintechDashboard() {
               </div>
             )}
 
-            {/* ================= TAB: THÔNG TIN CÁ NHÂN ================= */}
             {activeTab === 'profile' && (
               <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-300">
                 <h2 className="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-2">
                   <Shield className="w-6 h-6 text-[#1E6EFF]" /> Thông tin cá nhân & Bảo mật
                 </h2>
                 
-                {/* Thông tin tài khoản */}
                 <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-100">
                    <h3 className="text-xl font-bold text-slate-900 mb-6 border-b border-slate-100 pb-4">Thông tin tài khoản</h3>
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -649,7 +696,6 @@ export default function FintechDashboard() {
                    </div>
                 </div>
 
-                {/* Form Đổi Mật Khẩu */}
                 <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-100">
                    <h3 className="text-xl font-bold text-slate-900 mb-6 border-b border-slate-100 pb-4">Đổi mật khẩu</h3>
                    <form onSubmit={handleUpdatePassword} className="space-y-5 max-w-md">
