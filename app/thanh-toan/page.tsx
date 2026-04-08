@@ -137,7 +137,7 @@ function PaymentContent() {
     );
   }
 
-  const qrUrl = `https://img.vietqr.io/image/VPBank-${ACCOUNT_NUMBER}-compact2.png?amount=0&addInfo=${encodeURIComponent(transferContent)}&accountName=${encodeURIComponent(ACCOUNT_NAME)}`;
+  const qrUrl = `https://img.vietqr.io/image/VPBank-${ACCOUNT_NUMBER}-qr_only.png?amount=0&addInfo=${encodeURIComponent(transferContent)}&accountName=${encodeURIComponent(ACCOUNT_NAME)}`;
 
   return (
     <div className="min-h-screen bg-[#F5F7FB] flex items-center justify-center p-4 font-sans text-slate-800">
