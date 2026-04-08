@@ -47,11 +47,9 @@ export default function FintechDashboard() {
   const [refStats, setRefStats] = useState({ f1: 0, f2: 0, f3: 0, total: 0 });
   const [referralList, setReferralList] = useState<any[]>([]); 
 
-  // --- STATE QUẢN LÝ TÀI SẢN & TÍNH LÃI ---
   const [myPackages, setMyPackages] = useState<any[]>([]);
   const [currentTime, setCurrentTime] = useState(new Date());
 
-  // Đồng hồ chạy liên tục mỗi giây để đếm ngược
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
@@ -69,7 +67,6 @@ export default function FintechDashboard() {
     setUserName(email.split('@')[0]);
     setUserId(session.user.id);
 
-    // 1. Fetch Profile Data
     const { data: profile } = await supabase
       .from('profiles')
       .select('balance, bank_account, bank_name, has_purchased_package')
@@ -83,7 +80,6 @@ export default function FintechDashboard() {
         setHasPurchasedPackage(profile.has_purchased_package || false);
     }
 
-    // 2. Fetch Gói Đang Đầu Tư
     const { data: myPkgs } = await supabase
       .from('user_packages')
       .select('*')
@@ -91,7 +87,6 @@ export default function FintechDashboard() {
       .order('purchased_at', { ascending: false });
     if (myPkgs) setMyPackages(myPkgs);
 
-    // 3. Fetch Lịch sử
     const { data: txs } = await supabase
       .from('transactions')
       .select('*')
@@ -112,7 +107,6 @@ export default function FintechDashboard() {
     const { data: configData } = await supabase.from('settings').select('cskh_link').limit(1).single();
     if (configData && configData.cskh_link) setCskhLink(configData.cskh_link);
 
-    // 4. Fetch Referral
     try {
       const { data: f1Data } = await supabase.from('profiles').select('id, created_at').eq('referred_by', session.user.id);
       const f1List = (f1Data || []).map(p => ({ ...p, level: 'F1' }));
@@ -146,19 +140,53 @@ export default function FintechDashboard() {
       setIsWithdrawOpen(true);
   };
 
+  // CẬP NHẬT LOGIC RÚT TIỀN TẠI ĐÂY
   const handleWithdraw = async (e: React.FormEvent) => {
       e.preventDefault();
       const numAmount = parseInt(amount.replace(/,/g, ''));
+
       if (numAmount < 30000) { alert("Số tiền rút tối thiểu là 30,000 VNĐ!"); return; }
       if (numAmount > balance) { alert("Số dư không đủ để thực hiện giao dịch này!"); return; }
 
       setIsProcessing(true);
-      await supabase.from('transactions').insert({
-          user_id: userId, type: 'rut_tien', amount: numAmount, status: 'pending', bank_account: bankAccount, bank_name: bankName
-      });
-      alert(`Yêu cầu rút ${numAmount.toLocaleString('vi-VN')} VNĐ đã được gửi. Chờ xử lý!`);
-      setIsProcessing(false); setIsWithdrawOpen(false); setAmount('');
-      loadData();
+
+      try {
+          // 1. Trừ tiền ngay lập tức trên DB để chống spam lệnh
+          const newBalance = balance - numAmount;
+          const { error: profileError } = await supabase
+              .from('profiles')
+              .update({ balance: newBalance })
+              .eq('id', userId);
+              
+          if (profileError) throw profileError;
+
+          // 2. Tạo lệnh gửi lên Admin
+          const { error: txError } = await supabase.from('transactions').insert({
+              user_id: userId, 
+              type: 'rut_tien', 
+              amount: numAmount, 
+              status: 'pending', 
+              bank_account: bankAccount, 
+              bank_name: bankName
+          });
+
+          if (txError) {
+              // Hoàn tiền lại nếu tạo lệnh bị lỗi
+              await supabase.from('profiles').update({ balance: balance }).eq('id', userId);
+              throw txError;
+          }
+
+          alert(`Yêu cầu rút ${numAmount.toLocaleString('vi-VN')} VNĐ đã được gửi. Hệ thống đã trừ số dư!`);
+          setBalance(newBalance);
+          setIsWithdrawOpen(false); 
+          setAmount('');
+          loadData();
+      } catch (error: any) {
+          console.error("Lỗi rút tiền:", error);
+          alert("Lỗi tạo lệnh rút: " + error.message + "\n(Vui lòng mở khóa RLS cho bảng transactions trên Supabase)");
+      } finally {
+          setIsProcessing(false);
+      }
   };
 
   const handlePaymentRedirect = (packageName: string) => {
@@ -170,7 +198,6 @@ export default function FintechDashboard() {
     setIsCopied(true); setTimeout(() => setIsCopied(false), 2000);
   };
 
-  // --- HÀM XỬ LÝ NHẬN LÃI TỪ BẢNG TÀI SẢN ---
   const handleClaimInterest = async (pkgId: string) => {
       try {
           const { data, error } = await supabase.rpc('claim_package_interest', { p_pkg_id: pkgId });
@@ -178,7 +205,7 @@ export default function FintechDashboard() {
           
           if (data && data.success) {
               alert(`Chúc mừng! Bạn vừa nhận được ${Number(data.amount).toLocaleString('vi-VN')} VNĐ tiền lãi.`);
-              loadData(); // Cập nhật lại UI sau khi nhận tiền
+              loadData();
           } else {
               alert(data.message || 'Lỗi nhận lãi!');
           }
@@ -187,7 +214,6 @@ export default function FintechDashboard() {
       }
   };
 
-  // Format Đồng Hồ
   const formatTimeLeft = (diffMs: number) => {
       if (diffMs <= 0) return "Sẵn sàng nhận lãi";
       const h = Math.floor(diffMs / (1000 * 60 * 60));
@@ -208,7 +234,6 @@ export default function FintechDashboard() {
   return (
     <div className="flex h-screen bg-[#F5F7FB] font-sans text-slate-800 overflow-hidden">
       
-      {/* Modal Rút tiền giữ nguyên... */}
       {isWithdrawOpen && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl relative animate-in fade-in zoom-in duration-200">
@@ -232,7 +257,6 @@ export default function FintechDashboard() {
 
       {isMobileMenuOpen && <div className="fixed inset-0 bg-slate-900/50 z-40 md:hidden" onClick={() => setIsMobileMenuOpen(false)}/>}
 
-      {/* --- SIDEBAR --- */}
       <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transform transition-transform duration-300 flex flex-col ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0`}>
         <div className="h-16 flex items-center px-6 border-b border-slate-100">
           <div className="flex items-center gap-2 group cursor-pointer" onClick={() => setActiveTab('home')}>
@@ -256,7 +280,6 @@ export default function FintechDashboard() {
         </div>
       </aside>
 
-      {/* --- MAIN CONTENT AREA --- */}
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         <header className="h-16 bg-white/80 backdrop-blur-md border-b border-slate-200 flex items-center justify-between px-4 sm:px-6 lg:px-8 shrink-0 z-30">
           <div className="flex items-center gap-4">
@@ -274,7 +297,6 @@ export default function FintechDashboard() {
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
           <div className="max-w-7xl mx-auto pb-12">
             
-            {/* ================= TAB: TRANG CHỦ ================= */}
             {activeTab === 'home' && (
               <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
                 <div className="xl:col-span-8 space-y-8">
@@ -357,7 +379,6 @@ export default function FintechDashboard() {
               </div>
             )}
 
-            {/* ================= TAB: TÀI SẢN CỦA TÔI (MỚI) ================= */}
             {activeTab === 'assets' && (
               <div className="max-w-5xl mx-auto animate-in fade-in duration-300">
                 <h2 className="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-2">
@@ -385,18 +406,14 @@ export default function FintechDashboard() {
                 ) : (
                     <div className="space-y-6">
                         {myPackages.map(pkg => {
-                            // Tính toán thời gian
                             const lastClaimDate = new Date(pkg.last_claim_at);
-                            const nextClaimDate = new Date(lastClaimDate.getTime() + 24 * 60 * 60 * 1000); // + 24 giờ
+                            const nextClaimDate = new Date(lastClaimDate.getTime() + 24 * 60 * 60 * 1000); 
                             const diffMs = nextClaimDate.getTime() - currentTime.getTime();
                             const isReady = diffMs <= 0;
-                            
-                            // Dự tính số tiền lãi 1 ngày: (Gốc * lãi ngày)
                             const dailyReward = pkg.invested_amount * pkg.daily_interest_rate;
 
                             return (
                                 <div key={pkg.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col md:flex-row">
-                                    {/* Info */}
                                     <div className="p-6 md:w-1/2 border-b md:border-b-0 md:border-r border-slate-100 bg-slate-50/50">
                                         <div className="flex justify-between items-start mb-4">
                                             <div>
@@ -410,16 +427,11 @@ export default function FintechDashboard() {
                                         <p className="text-sm text-slate-500 flex items-center gap-1.5"><Calendar className="w-4 h-4"/> Ngày mua: {new Date(pkg.purchased_at).toLocaleDateString('vi-VN')}</p>
                                         <p className="text-sm text-slate-500 flex items-center gap-1.5 mt-1"><CheckCircle2 className="w-4 h-4 text-emerald-500"/> Lãi đã rút: <strong className="text-emerald-600">{pkg.total_earned.toLocaleString('vi-VN')} ₫</strong></p>
                                     </div>
-                                    
-                                    {/* Action */}
                                     <div className="p-6 md:w-1/2 flex flex-col justify-center items-center text-center">
                                         <p className="text-slate-500 text-sm font-bold mb-2 flex items-center gap-1"><Clock className="w-4 h-4"/> Chu kỳ nhận lãi 24H</p>
-                                        
-                                        {/* Đồng hồ đếm ngược */}
                                         <div className={`text-2xl font-black tracking-widest mb-4 ${isReady ? 'text-emerald-500' : 'text-blue-600 font-mono'}`}>
                                             {formatTimeLeft(diffMs)}
                                         </div>
-
                                         <button 
                                             onClick={() => handleClaimInterest(pkg.id)}
                                             disabled={!isReady}
@@ -436,7 +448,6 @@ export default function FintechDashboard() {
               </div>
             )}
 
-            {/* ================= TAB: GÓI ĐẦU TƯ ================= */}
             {activeTab === 'packages' && (
               <div className="max-w-7xl animate-in fade-in duration-300">
                 <h2 className="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-2">
@@ -452,34 +463,18 @@ export default function FintechDashboard() {
 
                         return (
                           <div key={pkg.id || idx} className={`bg-white rounded-2xl p-6 shadow-sm border transition-all duration-300 hover:shadow-xl ${isHighlight ? 'border-[#1E6EFF] ring-2 ring-[#1E6EFF]/20 md:-translate-y-2 relative' : 'border-slate-100 hover:-translate-y-1'}`}>
-                            {isHighlight && (
-                              <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#1E6EFF] text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">{pkg.badge}</span>
-                            )}
+                            {isHighlight && <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#1E6EFF] text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">{pkg.badge}</span>}
                             <h4 className="text-slate-500 font-medium">{pkg.name}</h4>
-                            <div className="my-4">
-                              <span className="text-4xl font-extrabold text-slate-900">{pkg.return_rate}</span>
-                              <span className="text-slate-500 font-medium">/yr</span>
-                            </div>
+                            <div className="my-4"><span className="text-4xl font-extrabold text-slate-900">{pkg.return_rate}</span><span className="text-slate-500 font-medium">/yr</span></div>
                             <div className="space-y-3 mb-6 text-sm">
-                              <div className="flex justify-between border-b border-slate-50 pb-2">
-                                <span className="text-slate-500">Limits</span>
-                                <span className="font-bold text-slate-800">{pkg.limits}</span>
-                              </div>
+                              <div className="flex justify-between border-b border-slate-50 pb-2"><span className="text-slate-500">Limits</span><span className="font-bold text-slate-800">{pkg.limits}</span></div>
                               <ul className="space-y-2 mt-4">
                                 {defaultFeatures.map((feature, fIdx) => (
-                                  <li key={fIdx} className="flex items-center gap-2 text-slate-600">
-                                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                                    <span>{feature}</span>
-                                  </li>
+                                  <li key={fIdx} className="flex items-center gap-2 text-slate-600"><CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" /><span>{feature}</span></li>
                                 ))}
                               </ul>
                             </div>
-                            <button 
-                              onClick={() => handlePaymentRedirect(pkg.name)}
-                              className={`w-full py-3 rounded-xl font-bold transition-all ${isHighlight ? 'bg-[#1E6EFF] text-white hover:bg-blue-600' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`}
-                            >
-                              Thanh toán
-                            </button>
+                            <button onClick={() => handlePaymentRedirect(pkg.name)} className={`w-full py-3 rounded-xl font-bold transition-all ${isHighlight ? 'bg-[#1E6EFF] text-white hover:bg-blue-600' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}`}>Thanh toán</button>
                           </div>
                         );
                       })
@@ -488,7 +483,6 @@ export default function FintechDashboard() {
               </div>
             )}
 
-            {/* ================= TAB: GIỚI THIỆU ================= */}
             {activeTab === 'referral' && (
               <div className="max-w-4xl space-y-8 animate-in fade-in duration-300">
                 <div className="bg-white rounded-2xl p-8 md:p-10 shadow-sm border border-slate-100 flex flex-col items-center text-center">
@@ -504,8 +498,7 @@ export default function FintechDashboard() {
                   <h3 className="text-xl font-bold text-slate-900">Thống kê giới thiệu</h3>
                   <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 flex flex-col md:flex-row items-center gap-6">
                     <div className="flex flex-col items-center justify-center p-6 bg-blue-50 rounded-2xl w-full md:w-1/3 border border-blue-100">
-                        <span className="text-slate-500 font-medium mb-2">Tổng số lượt mời</span>
-                        <span className="text-5xl font-extrabold text-[#1E6EFF]">{refStats.total}</span>
+                        <span className="text-slate-500 font-medium mb-2">Tổng số lượt mời</span><span className="text-5xl font-extrabold text-[#1E6EFF]">{refStats.total}</span>
                     </div>
                     <div className="w-full md:w-2/3 grid grid-cols-1 sm:grid-cols-3 gap-4">
                        <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 text-center"><span className="text-slate-500 text-sm font-medium block mb-1">Cấp 1 (F1)</span><span className="text-2xl font-bold text-slate-800">{refStats.f1}</span></div>
@@ -514,36 +507,9 @@ export default function FintechDashboard() {
                     </div>
                   </div>
                 </div>
-
-                <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-100">
-                    <h3 className="text-xl font-bold text-slate-900 mb-6">Chi tiết thành viên đã mời</h3>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 text-sm">
-                                    <th className="p-4 font-semibold">Tài khoản (ID)</th><th className="p-4 font-semibold text-center">Cấp độ</th><th className="p-4 font-semibold">Ngày tham gia</th>
-                                </tr>
-                            </thead>
-                            <tbody className="text-sm">
-                                {referralList.length === 0 ? (
-                                    <tr><td colSpan={3} className="p-6 text-center text-slate-500">Chưa có thành viên nào đăng ký qua link của bạn.</td></tr>
-                                ) : (
-                                    referralList.map((user) => (
-                                        <tr key={user.id} className="border-b border-slate-50 hover:bg-slate-50/50">
-                                            <td className="p-4 font-medium text-slate-800">User_{user.id.substring(0, 8)}...</td>
-                                            <td className="p-4 text-center"><span className={`px-3 py-1 rounded-full font-bold text-xs ${user.level === 'F1' ? 'bg-blue-100 text-blue-700' : user.level === 'F2' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{user.level}</span></td>
-                                            <td className="p-4 text-slate-500">{user.created_at ? new Date(user.created_at).toLocaleDateString('vi-VN') : 'Không rõ'}</td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
               </div>
             )}
 
-            {/* ================= TAB: SỰ KIỆN ================= */}
             {activeTab === 'events' && (
               <div className="max-w-4xl space-y-6 animate-in fade-in duration-300">
                 <h2 className="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-2">
@@ -566,7 +532,6 @@ export default function FintechDashboard() {
               </div>
             )}
 
-            {/* ================= TAB: ĐUA TOP ================= */}
             {activeTab === 'leaderboard' && (
               <div className="max-w-4xl animate-in fade-in duration-300">
                 <div className="bg-gradient-to-r from-amber-500 to-orange-400 rounded-t-2xl p-8 text-white text-center">
