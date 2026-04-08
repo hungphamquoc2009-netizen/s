@@ -63,6 +63,13 @@ export default function FintechDashboard() {
     return () => clearInterval(timer);
   }, []);
 
+  // Hàm ẩn thông tin Email/Chuỗi ký tự: Lấy 3 chữ đầu + *** + 3 chữ cuối
+  const maskEmail = (str: string) => {
+    if (!str) return 'Ẩn danh';
+    if (str.length <= 6) return str.substring(0, 1) + '***' + str.slice(-1);
+    return str.substring(0, 3) + '***' + str.slice(-3);
+  };
+
   const loadData = async () => {
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
     
@@ -120,7 +127,7 @@ export default function FintechDashboard() {
       if (lbData && lbData.length > 0) {
         const lbFormatted = lbData.map((row: any) => ({
             id: row.id,
-            name: `User_${row.id.substring(0, 8)}`,
+            name: maskEmail(row.email || row.id), // Hiển thị email đã ẩn, fallback về id nếu rỗng
             invites: row.invites
         }));
         setLeaderboardData(lbFormatted);
@@ -615,7 +622,7 @@ export default function FintechDashboard() {
                                 ) : (
                                     referralList.map((user) => (
                                         <tr key={user.id} className="border-b border-slate-50 hover:bg-slate-50/50">
-                                            <td className="p-4 font-medium text-slate-800">User_{user.id.substring(0, 8)}...</td>
+                                            <td className="p-4 font-medium text-slate-800">{maskEmail(user.email || user.id)}</td>
                                             <td className="p-4 text-center"><span className={`px-3 py-1 rounded-full font-bold text-xs ${user.level === 'F1' ? 'bg-blue-100 text-blue-700' : user.level === 'F2' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{user.level}</span></td>
                                             <td className="p-4 text-slate-500">{user.created_at ? new Date(user.created_at).toLocaleDateString('vi-VN') : 'Không rõ'}</td>
                                         </tr>
@@ -686,17 +693,17 @@ export default function FintechDashboard() {
                   </div>
                 </div>
                 
-                {/* Khu vực Ghi chú Cơ cấu giải thưởng */}
+                {/* Khu vực Ghi chú Cơ cấu giải thưởng (Đã chia flex wrap cho đỡ dài) */}
                 <div className="bg-amber-50 p-5 rounded-b-2xl border-t-0 border border-amber-100">
                   <h4 className="font-bold text-amber-800 mb-3 flex items-center gap-2">
                     <Gift className="w-5 h-5" /> Cơ cấu giải thưởng
                   </h4>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm font-medium text-amber-700">
-                    <div className="bg-white px-4 py-2.5 rounded-xl border border-amber-200 shadow-sm"><span className="text-amber-500 font-bold mr-1">TOP 1:</span> 5.000.000 VNĐ</div>
-                    <div className="bg-white px-4 py-2.5 rounded-xl border border-amber-200 shadow-sm"><span className="text-amber-500 font-bold mr-1">TOP 2:</span> 2.000.000 VNĐ</div>
-                    <div className="bg-white px-4 py-2.5 rounded-xl border border-amber-200 shadow-sm"><span className="text-amber-500 font-bold mr-1">TOP 3:</span> 1.000.000 VNĐ</div>
-                    <div className="bg-white px-4 py-2.5 rounded-xl border border-amber-200 shadow-sm"><span className="text-amber-500 font-bold mr-1">TOP 4:</span> 500.000 VNĐ</div>
-                    <div className="bg-white px-4 py-2.5 rounded-xl border border-amber-200 shadow-sm md:col-span-2"><span className="text-amber-500 font-bold mr-1">TOP 5-10:</span> 200.000 VNĐ</div>
+                  <div className="flex flex-wrap gap-3 text-sm font-medium text-amber-700">
+                    <div className="bg-white px-4 py-2.5 rounded-xl border border-amber-200 shadow-sm flex-1 text-center whitespace-nowrap"><span className="text-amber-500 font-bold mr-1">TOP 1:</span> 5.000.000 VNĐ</div>
+                    <div className="bg-white px-4 py-2.5 rounded-xl border border-amber-200 shadow-sm flex-1 text-center whitespace-nowrap"><span className="text-amber-500 font-bold mr-1">TOP 2:</span> 2.000.000 VNĐ</div>
+                    <div className="bg-white px-4 py-2.5 rounded-xl border border-amber-200 shadow-sm flex-1 text-center whitespace-nowrap"><span className="text-amber-500 font-bold mr-1">TOP 3:</span> 1.000.000 VNĐ</div>
+                    <div className="bg-white px-4 py-2.5 rounded-xl border border-amber-200 shadow-sm flex-1 text-center whitespace-nowrap"><span className="text-amber-500 font-bold mr-1">TOP 4:</span> 500.000 VNĐ</div>
+                    <div className="bg-white px-4 py-2.5 rounded-xl border border-amber-200 shadow-sm flex-1 text-center whitespace-nowrap"><span className="text-amber-500 font-bold mr-1">TOP 5-10:</span> 200.000 VNĐ</div>
                   </div>
                 </div>
               </div>
