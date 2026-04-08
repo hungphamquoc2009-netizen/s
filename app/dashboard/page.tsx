@@ -37,7 +37,7 @@ export default function FintechDashboard() {
   
   const [bankAccount, setBankAccount] = useState<string | null>(null);
   const [bankName, setBankName] = useState<string | null>(null);
-  const [accountName, setAccountName] = useState<string | null>(null); // THÊM TÊN CHỦ TÀI KHOẢN
+  const [accountName, setAccountName] = useState<string | null>(null); 
   const [hasPurchasedPackage, setHasPurchasedPackage] = useState<boolean>(false);
 
   const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
@@ -96,7 +96,7 @@ export default function FintechDashboard() {
         setBalance(profile.balance || 0);
         setBankAccount(profile.bank_account);
         setBankName(profile.bank_name);
-        setAccountName(profile.account_name); // Lấy tên chủ tài khoản
+        setAccountName(profile.account_name); 
         setHasPurchasedPackage(profile.has_purchased_package || false);
         if (!session.user.created_at && profile.created_at) setJoinDate(new Date(profile.created_at).toLocaleDateString('vi-VN'));
     }
@@ -122,15 +122,15 @@ export default function FintechDashboard() {
     const { data: eventsData } = await supabase.from('events').select('*').order('created_at', { ascending: false });
     if (eventsData) setEvents(eventsData);
 
+    // XỬ LÝ LẠI BXH: Đọc trực tiếp từ bảng leaderboards do Admin quản lý thay vì tự đếm
     try {
-      const { data: lbData, error } = await supabase.rpc('get_leaderboard');
+      const { data: lbData, error } = await supabase
+        .from('leaderboards')
+        .select('*')
+        .order('invites', { ascending: false });
+
       if (lbData && lbData.length > 0) {
-        const lbFormatted = lbData.map((row: any) => ({
-            id: row.id,
-            name: maskEmail(row.email || row.id),
-            invites: row.invites
-        }));
-        setLeaderboardData(lbFormatted);
+        setLeaderboardData(lbData);
       } else {
         setLeaderboardData([]);
       }
@@ -190,7 +190,6 @@ export default function FintechDashboard() {
           const { error: profileError } = await supabase.from('profiles').update({ balance: newBalance }).eq('id', userId);
           if (profileError) throw profileError;
 
-          // GỬI KÈM TÊN CHỦ TÀI KHOẢN VÀO TRANSACTIONS
           const { error: txError } = await supabase.from('transactions').insert({
               user_id: userId, 
               type: 'rut_tien', 
@@ -652,11 +651,16 @@ export default function FintechDashboard() {
                 ) : (
                   events.map((event) => (
                     <div key={event.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
+                      {event.image_url && (
+                          <div className="mb-4 w-full h-48 sm:h-64 overflow-hidden rounded-xl border border-slate-100">
+                              <img src={event.image_url} alt={event.title} className="w-full h-full object-cover" />
+                          </div>
+                      )}
                       <div className="flex flex-col sm:flex-row justify-between items-start gap-4 mb-4">
                         <h3 className="text-lg font-bold text-slate-800">{event.title}</h3>
                         <span className={`px-3 py-1 rounded-full text-xs font-bold shrink-0 ${event.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{event.status === 'active' ? 'Đang diễn ra' : 'Sắp diễn ra'}</span>
                       </div>
-                      <p className="text-slate-600 mb-4">{event.content}</p>
+                      <p className="text-slate-600 mb-4 whitespace-pre-wrap">{event.content}</p>
                       <div className="flex items-center gap-2 text-sm text-slate-400 font-medium"><Calendar className="w-4 h-4" /> Thời gian: {event.date}</div>
                     </div>
                   ))
