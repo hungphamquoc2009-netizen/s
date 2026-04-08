@@ -2,9 +2,10 @@
 
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+// ĐÃ BỔ SUNG Loader2 VÀO DÒNG IMPORT NÀY:
 import { 
   Users, Activity, CreditCard, Package, LogOut, Check, X, Edit, EyeOff, Plus, ArrowDownToLine, ArrowUpFromLine, Clock, LayoutDashboard,
-  MoreVertical, ChevronUp, ChevronDown, Gift, Trash2, Search, Calendar, Trophy, Settings as SettingsIcon
+  MoreVertical, ChevronUp, ChevronDown, Gift, Trash2, Search, Calendar, Trophy, Settings as SettingsIcon, Image as ImageIcon, UploadCloud, Loader2
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -12,14 +13,13 @@ export default function AdminDashboard() {
   const [users, setUsers] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [packages, setPackages] = useState<any[]>([]);
-  const [userPackages, setUserPackages] = useState<any[]>([]); // Dữ liệu nạp (Gói đầu tư đã mua)
+  const [userPackages, setUserPackages] = useState<any[]>([]); 
   const [isLoading, setIsLoading] = useState(true);
 
   const [events, setEvents] = useState<any[]>([]);
   const [leaderboards, setLeaderboards] = useState<any[]>([]);
   const [cskhLink, setCskhLink] = useState('');
 
-  // States cho Popup Sửa/Thêm Khách hàng
   const [isEditUserOpen, setIsEditUserOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
   const [newBankName, setNewBankName] = useState('');
@@ -32,7 +32,8 @@ export default function AdminDashboard() {
 
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<any>(null);
-  const [eventForm, setEventForm] = useState({ title: '', content: '', date: '', status: 'active' });
+  const [eventForm, setEventForm] = useState({ title: '', content: '', date: '', status: 'active', image_url: '' });
+  const [isUploadingImg, setIsUploadingImg] = useState(false);
 
   const [isLbModalOpen, setIsLbModalOpen] = useState(false);
   const [editingLb, setEditingLb] = useState<any>(null);
@@ -42,19 +43,30 @@ export default function AdminDashboard() {
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Hàm xử lý tên ngân hàng cho chuẩn VietQR (Lấy mã trong ngoặc)
   const getBankCode = (fullName: string) => {
     if (!fullName) return '';
     const match = fullName.match(/\(([^)]+)\)/);
-    if (match) return match[1].trim(); // Lấy chữ trong ngoặc, vd: VCB, TCB
-    return fullName.trim().replace(/\s+/g, ''); // Fallback
+    if (match) return match[1].trim(); 
+    return fullName.trim().replace(/\s+/g, ''); 
+  };
+
+  const getUserEmail = (userId: string) => {
+    const user = users.find(u => u.id === userId);
+    if (user?.email) return user.email;
+    if (user?.account_name) return `${user.account_name} (Chưa đồng bộ Email)`;
+    return userId.substring(0, 8) + '...';
   };
 
   const loadData = async (isBackground = false) => {
     if (!isBackground) setIsLoading(true);
     try {
-        const { data: profiles } = await supabase.from('profiles').select('*');
-        if (profiles) setUsers(profiles);
+        const { data: rpcProfiles, error: rpcErr } = await supabase.rpc('get_admin_profiles');
+        if (rpcProfiles && !rpcErr) {
+            setUsers(rpcProfiles);
+        } else {
+            const { data: profiles } = await supabase.from('profiles').select('*');
+            if (profiles) setUsers(profiles);
+        }
 
         const { data: txs } = await supabase.from('transactions').select('*').order('created_at', { ascending: false });
         if (txs) setTransactions(txs);
@@ -62,7 +74,6 @@ export default function AdminDashboard() {
         const { data: pkgs } = await supabase.from('packages').select('*').order('created_at', { ascending: true });
         if (pkgs) setPackages(pkgs);
 
-        // Lấy lịch sử mua gói (Chính là lịch sử Nạp tiền)
         const { data: uPkgs } = await supabase.from('user_packages').select('*').order('purchased_at', { ascending: false });
         if (uPkgs) setUserPackages(uPkgs);
 
@@ -201,14 +212,35 @@ export default function AdminDashboard() {
 
   const openAddEvent = () => {
     setEditingEvent(null);
-    setEventForm({ title: '', content: '', date: '', status: 'active' });
+    setEventForm({ title: '', content: '', date: '', status: 'active', image_url: '' });
     setIsEventModalOpen(true);
   };
 
   const openEditEvent = (evt: any) => {
     setEditingEvent(evt);
-    setEventForm({ title: evt.title, content: evt.content, date: evt.date, status: evt.status });
+    setEventForm({ title: evt.title, content: evt.content, date: evt.date, status: evt.status, image_url: evt.image_url || '' });
     setIsEventModalOpen(true);
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingImg(true);
+    try {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+        
+        const { error: uploadError } = await supabase.storage.from('events').upload(fileName, file);
+        if (uploadError) throw uploadError;
+
+        const { data } = supabase.storage.from('events').getPublicUrl(fileName);
+        setEventForm({ ...eventForm, image_url: data.publicUrl });
+    } catch (err: any) {
+        alert('Lỗi tải ảnh lên: ' + err.message + '\n(Vui lòng đảm bảo bạn đã tạo Storage bucket tên "events" và set Public)');
+    } finally {
+        setIsUploadingImg(false);
+    }
   };
 
   const saveEventInfo = async () => {
@@ -279,7 +311,6 @@ export default function AdminDashboard() {
     await loadData(true);
   };
 
-  // Tính toán Thống kê Tổng quan (Chuẩn hóa)
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -288,7 +319,6 @@ export default function AdminDashboard() {
   let todayWithdrawals = 0;
   let totalWithdrawals = 0;
 
-  // Lọc rút tiền từ Transactions
   transactions.forEach(tx => {
       if (tx.status === 'success' && tx.type === 'rut_tien') {
           const txDate = new Date(tx.created_at);
@@ -298,7 +328,6 @@ export default function AdminDashboard() {
       }
   });
 
-  // Lọc nạp tiền (thực chất là mua gói) từ User_packages
   userPackages.forEach(pkg => {
       const pkgDate = new Date(pkg.purchased_at || pkg.created_at);
       const isToday = pkgDate >= today;
@@ -312,7 +341,6 @@ export default function AdminDashboard() {
     setSortConfig({ key, direction });
   };
 
-  // Tính tổng nạp/rút cho từng User ở Tab Khách hàng
   let processedUsers = users.map(u => {
       const uPkgs = userPackages.filter(p => p.user_id === u.id);
       const userTxs = transactions.filter(t => t.user_id === u.id && t.status === 'success');
@@ -470,7 +498,7 @@ export default function AdminDashboard() {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
-                    <th className="p-4 font-semibold">Email đăng ký</th>
+                    <th className="p-4 font-semibold">Tài khoản Đăng ký</th>
                     <th className="p-4 font-semibold text-center">Phân loại</th>
                     <th className="p-4 font-semibold">
                         <button onClick={() => handleSort('totalDeposit')} className="flex items-center gap-1 hover:text-blue-600 transition-colors">
@@ -492,8 +520,8 @@ export default function AdminDashboard() {
                   {processedUsers.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-slate-500">Không tìm thấy khách hàng nào.</td></tr>}
                   {processedUsers.map(u => (
                     <tr key={u.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                      <td className="p-4 font-medium text-slate-700">
-                          {u.email || u.id.substring(0, 8) + '...'}
+                      <td className="p-4 font-bold text-slate-700">
+                          {u.email || u.account_name || u.id.substring(0, 8) + '...'}
                           <div className="text-xs text-slate-400 font-normal mt-1">Gia nhập: {u.created_at ? new Date(u.created_at).toLocaleDateString('vi-VN') : '-'}</div>
                       </td>
                       <td className="p-4 text-center">
@@ -577,6 +605,7 @@ export default function AdminDashboard() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
+                  <th className="p-4 font-semibold w-24 text-center">Hình ảnh</th>
                   <th className="p-4 font-semibold">Tên sự kiện</th>
                   <th className="p-4 font-semibold">Thời gian</th>
                   <th className="p-4 font-semibold">Nội dung</th>
@@ -585,9 +614,18 @@ export default function AdminDashboard() {
                 </tr>
               </thead>
               <tbody className="text-sm">
-                {events.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-slate-500">Chưa có sự kiện nào.</td></tr>}
+                {events.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-slate-500">Chưa có sự kiện nào.</td></tr>}
                 {events.map(evt => (
                   <tr key={evt.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                    <td className="p-4 text-center">
+                        {evt.image_url ? (
+                            <img src={evt.image_url} alt={evt.title} className="w-16 h-16 object-cover rounded-lg border border-slate-200 shadow-sm" />
+                        ) : (
+                            <div className="w-16 h-16 bg-slate-100 rounded-lg border border-slate-200 flex items-center justify-center text-slate-400">
+                                <ImageIcon className="w-6 h-6 opacity-50" />
+                            </div>
+                        )}
+                    </td>
                     <td className="p-4 font-bold text-slate-800 max-w-[200px] truncate">{evt.title}</td>
                     <td className="p-4 text-slate-600 font-medium">{evt.date}</td>
                     <td className="p-4 text-slate-500 max-w-[250px] truncate">{evt.content}</td>
@@ -648,12 +686,12 @@ export default function AdminDashboard() {
             </table>
           )}
 
-          {/* TAB: APPROVALS (DUYỆT RÚT TIỀN VỚI TÊN CHỦ TÀI KHOẢN VÀ MÃ QR) */}
+          {/* TAB: APPROVALS */}
           {activeTab === 'approvals' && (
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
-                  <th className="p-4 font-semibold">User ID</th>
+                  <th className="p-4 font-semibold">Khách hàng</th>
                   <th className="p-4 font-semibold">Thông tin STK nhận (Rẽ chuột để quét QR)</th>
                   <th className="p-4 font-semibold text-rose-600">Số tiền rút (VNĐ)</th>
                   <th className="p-4 font-semibold text-center">Hành động xử lý</th>
@@ -665,18 +703,16 @@ export default function AdminDashboard() {
                 )}
                 {transactions.filter(t => t.type === 'rut_tien' && t.status === 'pending').map(t => (
                   <tr key={t.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                    <td className="p-4 truncate max-w-[150px] font-medium text-slate-500">{t.user_id}</td>
+                    <td className="p-4 font-bold text-slate-700">{getUserEmail(t.user_id)}</td>
                     <td className="p-4">
                       <div className="flex items-center gap-3">
                           {t.bank_name && t.bank_account && (
                               <div className="shrink-0 relative group">
-                                  {/* Mã QR nhỏ */}
                                   <img 
                                       src={`https://img.vietqr.io/image/${getBankCode(t.bank_name)}-${t.bank_account.trim()}-qr_only.png?amount=${t.amount || 0}&addInfo=Thanh toan rut tien&accountName=${encodeURIComponent(t.account_name || '')}`}
                                       alt="QR"
                                       className="w-12 h-12 object-contain bg-white border border-slate-200 rounded-lg p-1 shadow-sm cursor-pointer"
                                   />
-                                  {/* Mã QR Phóng To Khi Hover */}
                                   <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 hidden group-hover:block z-50">
                                       <img 
                                           src={`https://img.vietqr.io/image/${getBankCode(t.bank_name)}-${t.bank_account.trim()}-qr_only.png?amount=${t.amount || 0}&addInfo=Thanh toan rut tien&accountName=${encodeURIComponent(t.account_name || '')}`}
@@ -718,7 +754,7 @@ export default function AdminDashboard() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
-                  <th className="p-4 font-semibold">User ID</th>
+                  <th className="p-4 font-semibold">Tài khoản Khách hàng</th>
                   <th className="p-4 font-semibold text-blue-600">Số tiền nạp/mua (VNĐ)</th>
                   <th className="p-4 font-semibold">Thời gian</th>
                   <th className="p-4 font-semibold">Gói đầu tư</th>
@@ -730,7 +766,7 @@ export default function AdminDashboard() {
                 )}
                 {userPackages.map(pkg => (
                   <tr key={pkg.id} className="border-b border-slate-100 hover:bg-slate-50">
-                    <td className="p-4 truncate max-w-[200px] text-slate-500">{pkg.user_id}</td>
+                    <td className="p-4 font-bold text-slate-700">{getUserEmail(pkg.user_id)}</td>
                     <td className="p-4 font-bold text-blue-600">+{pkg.invested_amount?.toLocaleString('vi-VN')} ₫</td>
                     <td className="p-4 text-slate-500">{new Date(pkg.purchased_at || pkg.created_at).toLocaleString('vi-VN')}</td>
                     <td className="p-4">
@@ -749,7 +785,7 @@ export default function AdminDashboard() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
-                  <th className="p-4 font-semibold">User ID</th>
+                  <th className="p-4 font-semibold">Tài khoản Khách hàng</th>
                   <th className="p-4 font-semibold">Thông tin Nhận</th>
                   <th className="p-4 font-semibold text-rose-600">Số tiền rút (VNĐ)</th>
                   <th className="p-4 font-semibold">Trạng thái</th>
@@ -758,7 +794,7 @@ export default function AdminDashboard() {
               <tbody className="text-sm">
                 {transactions.filter(t => t.type === 'rut_tien' && t.status !== 'pending').map(t => (
                   <tr key={t.id} className="border-b border-slate-100 hover:bg-slate-50">
-                    <td className="p-4 truncate max-w-[150px] text-slate-500">{t.user_id}</td>
+                    <td className="p-4 font-bold text-slate-700">{getUserEmail(t.user_id)}</td>
                     <td className="p-4">
                         <div className="font-bold text-slate-700">{t.bank_name || '-'}</div>
                         <div className="text-slate-600 text-xs font-medium uppercase">{t.account_name || ''}</div>
@@ -855,8 +891,8 @@ export default function AdminDashboard() {
                         <input type="text" placeholder="VD: 24 Months" value={pkgForm.duration} onChange={e => setPkgForm({...pkgForm, duration: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     </div>
                     <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-2">Tag nổi bật (Badge) - Bỏ trống nếu không cần</label>
-                        <input type="text" placeholder="VD: Most Popular, Khuyên Dùng..." value={pkgForm.badge} onChange={e => setPkgForm({...pkgForm, badge: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Tag nổi bật (Badge)</label>
+                        <input type="text" placeholder="VD: Most Popular" value={pkgForm.badge} onChange={e => setPkgForm({...pkgForm, badge: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     </div>
                 </div>
                 <button onClick={savePackageInfo} className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all">{editingPackage ? 'Lưu Thay Đổi' : 'Tạo Gói Mới'}</button>
@@ -864,13 +900,44 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* POPUP: ADD/EDIT EVENT */}
+      {/* POPUP: ADD/EDIT EVENT KÈM UPLOAD ẢNH */}
       {isEventModalOpen && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl relative">
+            <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl relative max-h-[90vh] overflow-y-auto">
                 <button onClick={() => setIsEventModalOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"><X className="w-6 h-6" /></button>
                 <h3 className="font-bold text-xl text-slate-900 mb-6">{editingEvent ? 'Chỉnh sửa Sự kiện' : 'Thêm Sự kiện Mới'}</h3>
+                
                 <div className="space-y-4 mb-8">
+                    {/* Phần Upload Ảnh */}
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Ảnh Sự kiện (Tùy chọn)</label>
+                        
+                        <div className="flex items-center gap-4">
+                            {eventForm.image_url ? (
+                                <div className="relative">
+                                    <img src={eventForm.image_url} alt="Preview" className="w-20 h-20 object-cover rounded-xl border border-slate-200 shadow-sm" />
+                                    <button onClick={() => setEventForm({...eventForm, image_url: ''})} className="absolute -top-2 -right-2 bg-rose-500 text-white rounded-full p-1 hover:bg-rose-600 transition-colors">
+                                        <X className="w-3 h-3" />
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="w-20 h-20 bg-slate-100 rounded-xl border border-slate-200 border-dashed flex flex-col items-center justify-center text-slate-400">
+                                    <ImageIcon className="w-6 h-6" />
+                                </div>
+                            )}
+
+                            <label className="flex-1 cursor-pointer">
+                                <div className={`w-full border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded-xl p-3 flex items-center justify-center gap-2 transition-colors ${isUploadingImg ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                    {isUploadingImg ? <Loader2 className="w-5 h-5 animate-spin text-blue-600" /> : <UploadCloud className="w-5 h-5 text-blue-600" />}
+                                    <span className="font-medium text-slate-700 text-sm">
+                                        {isUploadingImg ? 'Đang tải lên...' : 'Chọn ảnh từ máy...'}
+                                    </span>
+                                </div>
+                                <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={isUploadingImg} />
+                            </label>
+                        </div>
+                    </div>
+
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-2">Tiêu đề Sự kiện</label>
                         <input type="text" placeholder="Nhập tiêu đề..." value={eventForm.title} onChange={e => setEventForm({...eventForm, title: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
