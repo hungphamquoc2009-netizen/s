@@ -48,7 +48,10 @@ export default function FintechDashboard() {
   const [events, setEvents] = useState<any[]>([]);
   const [leaderboardData, setLeaderboardData] = useState<any[]>([]);
   const [cskhLink, setCskhLink] = useState<string>('#');
+  
+  // States cho tính năng Giới thiệu
   const [refStats, setRefStats] = useState({ f1: 0, f2: 0, f3: 0, total: 0 });
+  const [referralList, setReferralList] = useState<any[]>([]); // Lưu danh sách chi tiết người F1, F2, F3
 
   useEffect(() => {
     const loadData = async () => {
@@ -119,21 +122,38 @@ export default function FintechDashboard() {
         .single();
       if (configData && configData.cskh_link) setCskhLink(configData.cskh_link);
 
-      // 7. Fetch Referral Stats (Giả định lấy từ bảng referral_stats)
-      const { data: refData } = await supabase
-        .from('referral_stats')
-        .select('f1, f2, f3')
-        .eq('user_id', session.user.id)
-        .single();
+      // 7. TỰ ĐỘNG TÍNH TOÁN F1, F2, F3 TỪ BẢNG PROFILES
+      const { data: allProfiles } = await supabase
+        .from('profiles')
+        .select('id, referred_by, created_at');
 
-      if (refData) {
-        const f1 = refData.f1 || 0;
-        const f2 = refData.f2 || 0;
-        const f3 = refData.f3 || 0;
-        setRefStats({ f1, f2, f3, total: f1 + f2 + f3 });
-      } else {
-        // Dữ liệu tạm nếu user chưa có record
-        setRefStats({ f1: 0, f2: 0, f3: 0, total: 0 });
+      if (allProfiles) {
+        // Tìm F1: những người có referred_by là ID của user hiện tại
+        const f1List = allProfiles.filter(p => p.referred_by === session.user.id).map(p => ({ ...p, level: 'F1' }));
+        const f1Ids = f1List.map(p => p.id);
+
+        // Tìm F2: những người có referred_by nằm trong danh sách ID của F1
+        const f2List = allProfiles.filter(p => p.referred_by && f1Ids.includes(p.referred_by)).map(p => ({ ...p, level: 'F2' }));
+        const f2Ids = f2List.map(p => p.id);
+
+        // Tìm F3: những người có referred_by nằm trong danh sách ID của F2
+        const f3List = allProfiles.filter(p => p.referred_by && f2Ids.includes(p.referred_by)).map(p => ({ ...p, level: 'F3' }));
+
+        // Cập nhật thống kê số lượng
+        setRefStats({ 
+            f1: f1List.length, 
+            f2: f2List.length, 
+            f3: f3List.length, 
+            total: f1List.length + f2List.length + f3List.length 
+        });
+
+        // Gộp danh sách để hiển thị chi tiết (Sắp xếp người mới nhất lên đầu)
+        const combinedList = [...f1List, ...f2List, ...f3List].sort((a, b) => {
+            const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+            const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+            return dateB - dateA;
+        });
+        setReferralList(combinedList);
       }
     };
     
@@ -522,6 +542,49 @@ export default function FintechDashboard() {
                        </div>
                     </div>
                   </div>
+                </div>
+
+                {/* BẢNG CHI TIẾT THÀNH VIÊN (MỚI THÊM) */}
+                <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-100">
+                    <h3 className="text-xl font-bold text-slate-900 mb-6">Chi tiết thành viên đã mời</h3>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 text-sm">
+                                    <th className="p-4 font-semibold">Tài khoản (ID)</th>
+                                    <th className="p-4 font-semibold text-center">Cấp độ</th>
+                                    <th className="p-4 font-semibold">Ngày tham gia</th>
+                                </tr>
+                            </thead>
+                            <tbody className="text-sm">
+                                {referralList.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={3} className="p-6 text-center text-slate-500">Chưa có thành viên nào đăng ký qua link của bạn.</td>
+                                    </tr>
+                                ) : (
+                                    referralList.map((user) => (
+                                        <tr key={user.id} className="border-b border-slate-50 hover:bg-slate-50/50">
+                                            <td className="p-4 font-medium text-slate-800">
+                                                User_{user.id.substring(0, 8)}...
+                                            </td>
+                                            <td className="p-4 text-center">
+                                                <span className={`px-3 py-1 rounded-full font-bold text-xs ${
+                                                    user.level === 'F1' ? 'bg-blue-100 text-blue-700' :
+                                                    user.level === 'F2' ? 'bg-emerald-100 text-emerald-700' :
+                                                    'bg-amber-100 text-amber-700'
+                                                }`}>
+                                                    {user.level}
+                                                </span>
+                                            </td>
+                                            <td className="p-4 text-slate-500">
+                                                {user.created_at ? new Date(user.created_at).toLocaleDateString('vi-VN') : 'Không rõ'}
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
 
                 {/* Chính sách hoa hồng */}
