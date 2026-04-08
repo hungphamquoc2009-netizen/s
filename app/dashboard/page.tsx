@@ -37,6 +37,7 @@ export default function FintechDashboard() {
   
   const [bankAccount, setBankAccount] = useState<string | null>(null);
   const [bankName, setBankName] = useState<string | null>(null);
+  const [accountName, setAccountName] = useState<string | null>(null); // THÊM TÊN CHỦ TÀI KHOẢN
   const [hasPurchasedPackage, setHasPurchasedPackage] = useState<boolean>(false);
 
   const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
@@ -63,7 +64,6 @@ export default function FintechDashboard() {
     return () => clearInterval(timer);
   }, []);
 
-  // Hàm ẩn thông tin Email/Chuỗi ký tự: Lấy 3 chữ đầu + *** + 3 chữ cuối
   const maskEmail = (str: string) => {
     if (!str) return 'Ẩn danh';
     if (str.length <= 6) return str.substring(0, 1) + '***' + str.slice(-1);
@@ -88,7 +88,7 @@ export default function FintechDashboard() {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('balance, bank_account, bank_name, has_purchased_package, created_at')
+      .select('balance, bank_account, bank_name, account_name, has_purchased_package, created_at')
       .eq('id', session.user.id)
       .single();
       
@@ -96,6 +96,7 @@ export default function FintechDashboard() {
         setBalance(profile.balance || 0);
         setBankAccount(profile.bank_account);
         setBankName(profile.bank_name);
+        setAccountName(profile.account_name); // Lấy tên chủ tài khoản
         setHasPurchasedPackage(profile.has_purchased_package || false);
         if (!session.user.created_at && profile.created_at) setJoinDate(new Date(profile.created_at).toLocaleDateString('vi-VN'));
     }
@@ -123,11 +124,10 @@ export default function FintechDashboard() {
 
     try {
       const { data: lbData, error } = await supabase.rpc('get_leaderboard');
-      
       if (lbData && lbData.length > 0) {
         const lbFormatted = lbData.map((row: any) => ({
             id: row.id,
-            name: maskEmail(row.email || row.id), // Hiển thị email đã ẩn, fallback về id nếu rỗng
+            name: maskEmail(row.email || row.id),
             invites: row.invites
         }));
         setLeaderboardData(lbFormatted);
@@ -190,8 +190,15 @@ export default function FintechDashboard() {
           const { error: profileError } = await supabase.from('profiles').update({ balance: newBalance }).eq('id', userId);
           if (profileError) throw profileError;
 
+          // GỬI KÈM TÊN CHỦ TÀI KHOẢN VÀO TRANSACTIONS
           const { error: txError } = await supabase.from('transactions').insert({
-              user_id: userId, type: 'rut_tien', amount: numAmount, status: 'pending', bank_account: bankAccount, bank_name: bankName
+              user_id: userId, 
+              type: 'rut_tien', 
+              amount: numAmount, 
+              status: 'pending', 
+              bank_account: bankAccount, 
+              bank_name: bankName,
+              account_name: accountName
           });
 
           if (txError) {
@@ -206,7 +213,7 @@ export default function FintechDashboard() {
           loadData();
       } catch (error: any) {
           console.error("Lỗi rút tiền:", error);
-          alert("Lỗi tạo lệnh rút: " + error.message + "\n(Vui lòng mở khóa RLS cho bảng transactions trên Supabase)");
+          alert("Lỗi tạo lệnh rút: " + error.message);
       } finally {
           setIsProcessing(false);
       }
@@ -289,7 +296,7 @@ export default function FintechDashboard() {
                     </div>
                     <div className="mb-6">
                         <label className="block text-slate-700 font-bold mb-2">Tài khoản nhận</label>
-                        <input type="text" readOnly value={`${bankName ? bankName + ' - ' : ''}${bankAccount}`} className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl focus:outline-none text-slate-500 font-medium cursor-not-allowed"/>
+                        <input type="text" readOnly value={`${bankName ? bankName + ' - ' : ''}${accountName ? accountName + ' - ' : ''}${bankAccount}`} className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl focus:outline-none text-slate-500 font-medium cursor-not-allowed"/>
                     </div>
                     <button disabled={isProcessing} type="submit" className="w-full bg-slate-900 text-white font-bold py-3.5 rounded-xl hover:bg-slate-800">{isProcessing ? 'Đang xử lý...' : 'Tạo Lệnh Rút'}</button>
                 </form>
@@ -693,7 +700,7 @@ export default function FintechDashboard() {
                   </div>
                 </div>
                 
-                {/* Khu vực Ghi chú Cơ cấu giải thưởng (Đã chia flex wrap cho đỡ dài) */}
+                {/* Khu vực Ghi chú Cơ cấu giải thưởng */}
                 <div className="bg-amber-50 p-5 rounded-b-2xl border-t-0 border border-amber-100">
                   <h4 className="font-bold text-amber-800 mb-3 flex items-center gap-2">
                     <Gift className="w-5 h-5" /> Cơ cấu giải thưởng

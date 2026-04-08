@@ -14,22 +14,21 @@ export default function AdminDashboard() {
   const [packages, setPackages] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // --- NEW STATES CỦA NỘI DUNG & CẤU HÌNH ---
   const [events, setEvents] = useState<any[]>([]);
   const [leaderboards, setLeaderboards] = useState<any[]>([]);
   const [cskhLink, setCskhLink] = useState('');
 
-  // States cho Popup Sửa/Thêm Khách hàng & Gói
+  // States cho Popup Sửa/Thêm Khách hàng
   const [isEditUserOpen, setIsEditUserOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
   const [newBankName, setNewBankName] = useState('');
   const [newBankAccount, setNewBankAccount] = useState('');
+  const [newAccountName, setNewAccountName] = useState(''); // THÊM STATE CHỦ TÀI KHOẢN
 
   const [isPackageModalOpen, setIsPackageModalOpen] = useState(false);
   const [editingPackage, setEditingPackage] = useState<any>(null);
   const [pkgForm, setPkgForm] = useState({ name: '', return_rate: '', limits: '', duration: '', badge: '' });
 
-  // --- NEW MODAL STATES ---
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<any>(null);
   const [eventForm, setEventForm] = useState({ title: '', content: '', date: '', status: 'active' });
@@ -38,12 +37,10 @@ export default function AdminDashboard() {
   const [editingLb, setEditingLb] = useState<any>(null);
   const [lbForm, setLbForm] = useState({ name: '', invites: 0, reward: '' });
 
-  // States cho Tab Users (Sắp xếp, Tìm kiếm và Dropdown)
   const [sortConfig, setSortConfig] = useState<{ key: 'totalDeposit' | 'totalWithdrawal', direction: 'asc' | 'desc' } | null>(null);
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Thêm cờ isBackground để không làm chớp màn hình khi fetch ngầm
   const loadData = async (isBackground = false) => {
     if (!isBackground) setIsLoading(true);
     try {
@@ -75,7 +72,6 @@ export default function AdminDashboard() {
   useEffect(() => {
     loadData();
 
-    // Dùng loadData(true) để dữ liệu tự cập nhật ngầm không làm chớp UI
     const profileSubscription = supabase.channel('public-profiles-changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => loadData(true)).subscribe();
 
@@ -105,7 +101,6 @@ export default function AdminDashboard() {
     window.location.href = '/login';
   };
 
-  // --- LOGIC 3 NÚT DUYỆT RÚT TIỀN ---
   const handleApproveWithdrawal = async (tx: any) => {
     if (!confirm(`Xác nhận DUYỆT lệnh rút ${tx.amount.toLocaleString()} VND?`)) return;
     
@@ -133,25 +128,25 @@ export default function AdminDashboard() {
     await loadData(true);
   };
 
-  // --- LOGIC SỬA TÀI KHOẢN KHÁCH HÀNG ---
   const openEditUser = (user: any) => {
     setEditingUser(user);
     setNewBankName(user.bank_name || '');
     setNewBankAccount(user.bank_account || '');
+    setNewAccountName(user.account_name || ''); // SET TÊN CTK CŨ
     setIsEditUserOpen(true);
   };
 
   const saveUserBankInfo = async () => {
     await supabase.from('profiles').update({
       bank_name: newBankName,
-      bank_account: newBankAccount
+      bank_account: newBankAccount,
+      account_name: newAccountName // LƯU TÊN CTK MỚI
     }).eq('id', editingUser.id);
     alert('Cập nhật thông tin ngân hàng thành công!');
     setIsEditUserOpen(false);
     await loadData(true);
   };
 
-  // --- LOGIC THÊM & SỬA GÓI ĐẦU TƯ ---
   const openAddPackage = () => {
     setEditingPackage(null);
     setPkgForm({ name: '', return_rate: '', limits: '', duration: '', badge: '' });
@@ -187,7 +182,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // --- LOGIC QUẢN LÝ SỰ KIỆN ---
   const openAddEvent = () => {
     setEditingEvent(null);
     setEventForm({ title: '', content: '', date: '', status: 'active' });
@@ -222,7 +216,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // --- LOGIC QUẢN LÝ ĐUA TOP ---
   const openAddLb = () => {
     setEditingLb(null);
     setLbForm({ name: '', invites: 0, reward: '' });
@@ -258,7 +251,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // --- LOGIC LƯU CÀI ĐẶT (CSKH) ---
   const saveSettingsInfo = async () => {
     const { data } = await supabase.from('settings').select('id').limit(1);
     if (data && data.length > 0) {
@@ -270,7 +262,6 @@ export default function AdminDashboard() {
     await loadData(true);
   };
 
-  // --- TÍNH TOÁN THỐNG KÊ TỔNG QUAN ---
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -290,7 +281,6 @@ export default function AdminDashboard() {
       return acc;
   }, { todayDeposits: 0, todayWithdrawals: 0, totalDeposits: 0, totalWithdrawals: 0 });
 
-  // --- TÍNH TOÁN & LỌC DỮ LIỆU USER CHO TAB KHÁCH HÀNG ---
   const handleSort = (key: 'totalDeposit' | 'totalWithdrawal') => {
     let direction: 'asc' | 'desc' = 'desc';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') direction = 'asc';
@@ -320,7 +310,6 @@ export default function AdminDashboard() {
       });
   }
 
-  // Loại bỏ hiệu ứng giật lag, chỉ hiển thị Loading lần đầu
   if (isLoading && users.length === 0) return <div className="min-h-screen flex items-center justify-center font-semibold text-slate-500">Đang tải dữ liệu hệ thống...</div>;
 
   return (
@@ -630,13 +619,13 @@ export default function AdminDashboard() {
             </table>
           )}
 
-          {/* TAB: APPROVALS (DUYỆT RÚT TIỀN) */}
+          {/* TAB: APPROVALS (DUYỆT RÚT TIỀN VỚI TÊN CHỦ TÀI KHOẢN VÀ MÃ QR) */}
           {activeTab === 'approvals' && (
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
                   <th className="p-4 font-semibold">User ID</th>
-                  <th className="p-4 font-semibold">Thông tin STK nhận</th>
+                  <th className="p-4 font-semibold">Thông tin STK nhận (Rẽ chuột để quét QR)</th>
                   <th className="p-4 font-semibold text-rose-600">Số tiền rút (VNĐ)</th>
                   <th className="p-4 font-semibold text-center">Hành động xử lý</th>
                 </tr>
@@ -649,8 +638,31 @@ export default function AdminDashboard() {
                   <tr key={t.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
                     <td className="p-4 truncate max-w-[150px] font-medium text-slate-500">{t.user_id}</td>
                     <td className="p-4">
-                        <div className="font-bold text-slate-800">{t.bank_name || 'Không rõ NH'}</div>
-                        <div className="text-slate-500">{t.bank_account || 'Không có STK'}</div>
+                      <div className="flex items-center gap-3">
+                          {t.bank_name && t.bank_account && (
+                              <div className="shrink-0 relative group">
+                                  {/* Mã QR nhỏ */}
+                                  <img 
+                                      src={`https://img.vietqr.io/image/${t.bank_name.trim().replace(/\s+/g, '')}-${t.bank_account.trim()}-qr_only.png?amount=${t.amount || 0}&addInfo=Thanh toan rut tien&accountName=${encodeURIComponent(t.account_name || '')}`}
+                                      alt="QR"
+                                      className="w-12 h-12 object-contain bg-white border border-slate-200 rounded-lg p-1 shadow-sm cursor-pointer"
+                                  />
+                                  {/* Mã QR Phóng To Khi Hover */}
+                                  <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 hidden group-hover:block z-50">
+                                      <img 
+                                          src={`https://img.vietqr.io/image/${t.bank_name.trim().replace(/\s+/g, '')}-${t.bank_account.trim()}-qr_only.png?amount=${t.amount || 0}&addInfo=Thanh toan rut tien&accountName=${encodeURIComponent(t.account_name || '')}`}
+                                          alt="QR Zoom"
+                                          className="w-56 h-56 max-w-none object-contain bg-white border border-slate-200 rounded-2xl p-3 shadow-2xl"
+                                      />
+                                  </div>
+                              </div>
+                          )}
+                          <div>
+                              <div className="font-bold text-slate-800">{t.bank_name || 'Không rõ NH'}</div>
+                              <div className="text-slate-600 font-medium text-xs uppercase">{t.account_name || 'Chưa cập nhật Tên CTK'}</div>
+                              <div className="text-slate-500 font-mono mt-0.5">{t.bank_account || 'Không có STK'}</div>
+                          </div>
+                      </div>
                     </td>
                     <td className="p-4 font-extrabold text-rose-600 text-base">{t.amount?.toLocaleString('vi-VN')} ₫</td>
                     <td className="p-4">
@@ -717,7 +729,8 @@ export default function AdminDashboard() {
                     <td className="p-4 truncate max-w-[150px] text-slate-500">{t.user_id}</td>
                     <td className="p-4">
                         <div className="font-bold text-slate-700">{t.bank_name || '-'}</div>
-                        <div className="text-slate-500">{t.bank_account || '-'}</div>
+                        <div className="text-slate-600 text-xs font-medium uppercase">{t.account_name || ''}</div>
+                        <div className="text-slate-500 font-mono mt-0.5">{t.bank_account || '-'}</div>
                     </td>
                     <td className="p-4 font-bold text-rose-600">-{t.amount?.toLocaleString('vi-VN')} ₫</td>
                     <td className="p-4">
@@ -761,7 +774,7 @@ export default function AdminDashboard() {
 
       </div>
 
-      {/* POPUP: EDIT USER BANK */}
+      {/* POPUP: EDIT USER BANK CÓ THÊM TÊN CHỦ TÀI KHOẢN */}
       {isEditUserOpen && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl relative">
@@ -773,9 +786,13 @@ export default function AdminDashboard() {
                     <label className="block text-sm font-bold text-slate-700 mb-2">Tên Ngân hàng</label>
                     <input type="text" placeholder="VD: Vietcombank" value={newBankName} onChange={e => setNewBankName(e.target.value)} className="w-full border border-slate-200 bg-slate-50 focus:bg-white rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
                 </div>
-                <div className="mb-8">
+                <div className="mb-4">
                     <label className="block text-sm font-bold text-slate-700 mb-2">Số tài khoản</label>
                     <input type="text" placeholder="VD: 0123456789" value={newBankAccount} onChange={e => setNewBankAccount(e.target.value)} className="w-full border border-slate-200 bg-slate-50 focus:bg-white rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
+                </div>
+                <div className="mb-8">
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Tên Chủ Tài Khoản</label>
+                    <input type="text" placeholder="VD: NGUYEN VAN A" value={newAccountName} onChange={e => setNewAccountName(e.target.value.toUpperCase())} className="w-full border border-slate-200 bg-slate-50 focus:bg-white rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all" />
                 </div>
                 <button onClick={saveUserBankInfo} className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all">Lưu Thay Đổi</button>
             </div>
