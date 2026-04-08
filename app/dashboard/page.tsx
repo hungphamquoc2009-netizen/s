@@ -13,7 +13,6 @@ import {
 import { supabase } from '@/lib/supabase'; 
 
 // --- MOCK DATA (Biểu đồ) ---
-// Giữ nguyên dữ liệu biểu đồ vì đây thường là dữ liệu tính toán động hoặc admin chưa yêu cầu đổi
 const chartData = [
   { name: 'Jan', actual: 120, expected: 130 },
   { name: 'Feb', actual: 135, expected: 138 },
@@ -44,14 +43,13 @@ export default function FintechDashboard() {
   const [amount, setAmount] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // --- NEW FEATURES STATES (Dữ liệu thật từ DB) ---
+  // --- NEW FEATURES STATES ---
   const [events, setEvents] = useState<any[]>([]);
   const [leaderboardData, setLeaderboardData] = useState<any[]>([]);
   const [cskhLink, setCskhLink] = useState<string>('#');
   
-  // States cho tính năng Giới thiệu
   const [refStats, setRefStats] = useState({ f1: 0, f2: 0, f3: 0, total: 0 });
-  const [referralList, setReferralList] = useState<any[]>([]); // Lưu danh sách chi tiết người F1, F2, F3
+  const [referralList, setReferralList] = useState<any[]>([]); 
 
   useEffect(() => {
     const loadData = async () => {
@@ -67,38 +65,36 @@ export default function FintechDashboard() {
       setUserId(session.user.id);
 
       // 1. Fetch Profile Data
-      const { data: profile, error: profileError } = await supabase
+      const { data: profile } = await supabase
         .from('profiles')
         .select('balance, bank_account, bank_name, has_purchased_package')
         .eq('id', session.user.id)
         .single();
         
-      if (profile && !profileError) {
-          setBalance(profile.balance);
+      if (profile) {
+          setBalance(profile.balance || 0);
           setBankAccount(profile.bank_account);
           setBankName(profile.bank_name);
           setHasPurchasedPackage(profile.has_purchased_package || false);
-      } else {
-          setBalance(0);
       }
 
       // 2. Fetch Transactions
-      const { data: txs, error: txError } = await supabase
+      const { data: txs } = await supabase
         .from('transactions')
         .select('*')
         .eq('user_id', session.user.id)
         .order('created_at', { ascending: false })
         .limit(3);
         
-      if (txs && !txError) setTxHistory(txs);
+      if (txs) setTxHistory(txs);
 
       // 3. Fetch Packages
-      const { data: pkgs, error: pkgsError } = await supabase
+      const { data: pkgs } = await supabase
         .from('packages')
         .select('*')
         .order('created_at', { ascending: true });
 
-      if (pkgs && !pkgsError) setPackages(pkgs);
+      if (pkgs) setPackages(pkgs);
 
       // 4. Fetch Events
       const { data: eventsData } = await supabase
@@ -122,24 +118,39 @@ export default function FintechDashboard() {
         .single();
       if (configData && configData.cskh_link) setCskhLink(configData.cskh_link);
 
-      // 7. TỰ ĐỘNG TÍNH TOÁN F1, F2, F3 TỪ BẢNG PROFILES
-      const { data: allProfiles } = await supabase
-        .from('profiles')
-        .select('id, referred_by, created_at');
+      // 7. THUẬT TOÁN LẤY F1, F2, F3 (TỐI ƯU SIÊU NHANH)
+      try {
+        // Lấy F1
+        const { data: f1Data } = await supabase
+            .from('profiles')
+            .select('id, created_at')
+            .eq('referred_by', session.user.id);
+        
+        const f1List = (f1Data || []).map(p => ({ ...p, level: 'F1' }));
+        let f2List: any[] = [];
+        let f3List: any[] = [];
 
-      if (allProfiles) {
-        // Tìm F1: những người có referred_by là ID của user hiện tại
-        const f1List = allProfiles.filter(p => p.referred_by === session.user.id).map(p => ({ ...p, level: 'F1' }));
-        const f1Ids = f1List.map(p => p.id);
+        // Nếu có F1, lấy tiếp F2
+        if (f1List.length > 0) {
+            const f1Ids = f1List.map(p => p.id);
+            const { data: f2Data } = await supabase
+                .from('profiles')
+                .select('id, created_at, referred_by')
+                .in('referred_by', f1Ids);
+            f2List = (f2Data || []).map(p => ({ ...p, level: 'F2' }));
+        }
 
-        // Tìm F2: những người có referred_by nằm trong danh sách ID của F1
-        const f2List = allProfiles.filter(p => p.referred_by && f1Ids.includes(p.referred_by)).map(p => ({ ...p, level: 'F2' }));
-        const f2Ids = f2List.map(p => p.id);
+        // Nếu có F2, lấy tiếp F3
+        if (f2List.length > 0) {
+            const f2Ids = f2List.map(p => p.id);
+            const { data: f3Data } = await supabase
+                .from('profiles')
+                .select('id, created_at, referred_by')
+                .in('referred_by', f2Ids);
+            f3List = (f3Data || []).map(p => ({ ...p, level: 'F3' }));
+        }
 
-        // Tìm F3: những người có referred_by nằm trong danh sách ID của F2
-        const f3List = allProfiles.filter(p => p.referred_by && f2Ids.includes(p.referred_by)).map(p => ({ ...p, level: 'F3' }));
-
-        // Cập nhật thống kê số lượng
+        // Cập nhật thống kê
         setRefStats({ 
             f1: f1List.length, 
             f2: f2List.length, 
@@ -147,13 +158,16 @@ export default function FintechDashboard() {
             total: f1List.length + f2List.length + f3List.length 
         });
 
-        // Gộp danh sách để hiển thị chi tiết (Sắp xếp người mới nhất lên đầu)
+        // Gộp danh sách để hiển thị bảng
         const combinedList = [...f1List, ...f2List, ...f3List].sort((a, b) => {
             const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
             const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
             return dateB - dateA;
         });
         setReferralList(combinedList);
+
+      } catch (err) {
+          console.error("Lỗi khi tải dữ liệu giới thiệu:", err);
       }
     };
     
@@ -544,7 +558,7 @@ export default function FintechDashboard() {
                   </div>
                 </div>
 
-                {/* BẢNG CHI TIẾT THÀNH VIÊN (MỚI THÊM) */}
+                {/* BẢNG CHI TIẾT THÀNH VIÊN */}
                 <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-100">
                     <h3 className="text-xl font-bold text-slate-900 mb-6">Chi tiết thành viên đã mời</h3>
                     <div className="overflow-x-auto">
