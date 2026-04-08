@@ -37,12 +37,21 @@ function PaymentContent() {
       }
 
       const email = session.user.email || '';
-      const name = email.split('@')[0];
+      
+      // XỬ LÝ CHỐNG TRÙNG LẶP VÀ LỖI FONT NGÂN HÀNG: 
+      // 1. Chỉ lấy chữ/số, viết hoa
+      const name = email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
       setUserName(name);
       setUserId(session.user.id);
       
-      // Tạo nội dung chuyển khoản: MUA [Tên gói] [userName]
-      const content = `MUA ${packageName} ${name}`;
+      // 2. Tạo một mã random 5 số để đảm bảo KHÔNG BAO GIỜ TRÙNG LẶP
+      const randomCode = Math.floor(10000 + Math.random() * 90000);
+      
+      // 3. Tên gói cũng lọc bỏ ký tự đặc biệt, khoảng trắng, viết hoa
+      const safePackageName = packageName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+
+      // Nội dung chuyển khoản chuẩn mới: MUA [TênGói] [TênUser] [MãRandom]
+      const content = `MUA ${safePackageName} ${name} ${randomCode}`;
       setTransferContent(content);
 
       // Lấy thông tin giá tiền của gói từ bảng packages
@@ -77,7 +86,7 @@ function PaymentContent() {
         
         const targetContent = transferContent.toLowerCase().trim();
 
-        // Xử lý linh hoạt format dữ liệu của API Bank (có thể là data.data, data.transactions, hoặc trực tiếp data)
+        // Xử lý linh hoạt format dữ liệu của API Bank
         let transactionsArray = [];
         if (Array.isArray(data)) transactionsArray = data;
         else if (data.data && Array.isArray(data.data)) transactionsArray = data.data;
@@ -94,7 +103,7 @@ function PaymentContent() {
           // Nếu tìm thấy giao dịch hợp lệ
           clearInterval(intervalId); // Dừng polling
           
-          // Lấy chính xác số tiền khách đã chuyển (Tùy API trả về key là amount, creditAmount hay sotien)
+          // Lấy chính xác số tiền khách đã chuyển
           const paidAmount = Number(matchedTx.amount || matchedTx.creditAmount || matchedTx.sotien || matchedTx.tien || 0);
 
           // 1. Cập nhật trạng thái đã mua gói vào Supabase
@@ -115,8 +124,9 @@ function PaymentContent() {
               }
           }
 
-          alert("Thanh toán thành công! Hệ thống đang chuyển hướng về trang chủ.");
-          window.location.href = '/';
+          alert("Thanh toán thành công! Hệ thống đang chuyển hướng về bảng điều khiển.");
+          // Đã sửa hướng điều hướng về trang dashboard theo yêu cầu
+          window.location.href = '/dashboard';
         }
       } catch (error) {
         console.error("Lỗi khi fetch API Bank:", error);
@@ -259,7 +269,7 @@ function PaymentContent() {
               </button>
             </div>
 
-            {/* SỐ TIỀN CẦN THANH TOÁN (MỚI THÊM) */}
+            {/* SỐ TIỀN CẦN THANH TOÁN */}
             <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl flex items-center justify-between group">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-white rounded-lg shadow-sm">
