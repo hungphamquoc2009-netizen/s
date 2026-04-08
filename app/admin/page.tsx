@@ -43,64 +43,54 @@ export default function AdminDashboard() {
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const loadData = async () => {
-    setIsLoading(true);
+  // Thêm cờ isBackground để không làm chớp màn hình khi fetch ngầm
+  const loadData = async (isBackground = false) => {
+    if (!isBackground) setIsLoading(true);
     try {
-        // Lấy danh sách user
-        const { data: profiles, error: profileError } = await supabase.from('profiles').select('*');
-        if (profileError) console.error("Lỗi lấy danh sách user:", profileError);
-        else if (profiles) setUsers(profiles);
+        const { data: profiles } = await supabase.from('profiles').select('*');
+        if (profiles) setUsers(profiles);
 
-        // Lấy lịch sử giao dịch
-        const { data: txs, error: txError } = await supabase.from('transactions').select('*').order('created_at', { ascending: false });
-        if (txError) console.error("Lỗi lấy giao dịch:", txError);
-        else if (txs) setTransactions(txs);
+        const { data: txs } = await supabase.from('transactions').select('*').order('created_at', { ascending: false });
+        if (txs) setTransactions(txs);
 
-        // Lấy danh sách gói đầu tư
-        const { data: pkgs, error: pkgsError } = await supabase.from('packages').select('*').order('created_at', { ascending: true });
-        if (pkgsError) console.error("Lỗi lấy danh sách gói:", pkgsError);
-        else if (pkgs) setPackages(pkgs);
+        const { data: pkgs } = await supabase.from('packages').select('*').order('created_at', { ascending: true });
+        if (pkgs) setPackages(pkgs);
 
-        // Lấy danh sách sự kiện
         const { data: evts } = await supabase.from('events').select('*').order('created_at', { ascending: false });
         if (evts) setEvents(evts);
 
-        // Lấy danh sách đua top
         const { data: lbs } = await supabase.from('leaderboards').select('*').order('invites', { ascending: false });
         if (lbs) setLeaderboards(lbs);
 
-        // Lấy cấu hình CSKH
         const { data: settings } = await supabase.from('settings').select('*').limit(1).single();
         if (settings) setCskhLink(settings.cskh_link);
 
     } catch (err) {
         console.error("Lỗi hệ thống:", err);
     } finally {
-        setIsLoading(false);
+        if (!isBackground) setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    // 1. Tải dữ liệu lần đầu khi mở trang
     loadData();
 
-    // 2. Thiết lập Realtime lắng nghe thay đổi từ Database
+    // Dùng loadData(true) để dữ liệu tự cập nhật ngầm không làm chớp UI
     const profileSubscription = supabase.channel('public-profiles-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => loadData()).subscribe();
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => loadData(true)).subscribe();
 
     const transactionSubscription = supabase.channel('public-transactions-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => loadData()).subscribe();
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => loadData(true)).subscribe();
 
     const packageSubscription = supabase.channel('public-packages-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'packages' }, () => loadData()).subscribe();
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'packages' }, () => loadData(true)).subscribe();
 
     const eventSubscription = supabase.channel('public-events-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => loadData()).subscribe();
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => loadData(true)).subscribe();
 
     const lbSubscription = supabase.channel('public-leaderboards-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'leaderboards' }, () => loadData()).subscribe();
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'leaderboards' }, () => loadData(true)).subscribe();
 
-    // Dọn dẹp kết nối khi rời khỏi trang
     return () => {
         supabase.removeChannel(profileSubscription);
         supabase.removeChannel(transactionSubscription);
@@ -126,18 +116,21 @@ export default function AdminDashboard() {
     }
     await supabase.from('transactions').update({ status: 'success' }).eq('id', tx.id);
     alert('Đã duyệt thành công!');
+    await loadData(true);
   };
 
   const handleRejectWithdrawal = async (id: string) => {
     if (!confirm('Bạn có chắc chắn muốn TỪ CHỐI lệnh rút này?')) return;
     await supabase.from('transactions').update({ status: 'rejected' }).eq('id', id);
     alert('Đã từ chối lệnh rút!');
+    await loadData(true);
   };
 
   const handleSuspendWithdrawal = async (id: string) => {
     if (!confirm('Bạn có chắc muốn TREO lệnh này? (Lệnh sẽ bị ẩn khỏi danh sách chờ nhưng khách không biết)')) return;
     await supabase.from('transactions').update({ status: 'treo' }).eq('id', id);
     alert('Đã đưa lệnh rút vào trạng thái treo!');
+    await loadData(true);
   };
 
   // --- LOGIC SỬA TÀI KHOẢN KHÁCH HÀNG ---
@@ -155,6 +148,7 @@ export default function AdminDashboard() {
     }).eq('id', editingUser.id);
     alert('Cập nhật thông tin ngân hàng thành công!');
     setIsEditUserOpen(false);
+    await loadData(true);
   };
 
   // --- LOGIC THÊM & SỬA GÓI ĐẦU TƯ ---
@@ -181,6 +175,7 @@ export default function AdminDashboard() {
         alert('Đã thêm gói đầu tư mới!');
     }
     setIsPackageModalOpen(false);
+    await loadData(true);
   };
 
   const handleDeletePackage = async (id: string) => {
@@ -188,6 +183,7 @@ export default function AdminDashboard() {
         const { error } = await supabase.from('packages').delete().eq('id', id);
         if (error) return alert('Lỗi xóa gói: ' + error.message);
         alert('Đã xóa gói đầu tư!');
+        await loadData(true);
     }
   };
 
@@ -215,12 +211,14 @@ export default function AdminDashboard() {
         alert('Đã thêm sự kiện mới!');
     }
     setIsEventModalOpen(false);
+    await loadData(true);
   };
 
   const handleDeleteEvent = async (id: string) => {
     if (confirm('Bạn có chắc muốn xóa sự kiện này?')) {
         await supabase.from('events').delete().eq('id', id);
         alert('Đã xóa sự kiện!');
+        await loadData(true);
     }
   };
 
@@ -249,12 +247,14 @@ export default function AdminDashboard() {
         alert('Đã thêm người vào bảng xếp hạng!');
     }
     setIsLbModalOpen(false);
+    await loadData(true);
   };
 
   const handleDeleteLb = async (id: string) => {
     if (confirm('Xóa người này khỏi bảng xếp hạng đua top?')) {
         await supabase.from('leaderboards').delete().eq('id', id);
         alert('Đã xóa thành công!');
+        await loadData(true);
     }
   };
 
@@ -267,6 +267,7 @@ export default function AdminDashboard() {
         await supabase.from('settings').insert([{ cskh_link: cskhLink }]);
     }
     alert('Đã lưu cấu hình hệ thống!');
+    await loadData(true);
   };
 
   // --- TÍNH TOÁN THỐNG KÊ TỔNG QUAN ---
@@ -319,6 +320,7 @@ export default function AdminDashboard() {
       });
   }
 
+  // Loại bỏ hiệu ứng giật lag, chỉ hiển thị Loading lần đầu
   if (isLoading && users.length === 0) return <div className="min-h-screen flex items-center justify-center font-semibold text-slate-500">Đang tải dữ liệu hệ thống...</div>;
 
   return (
