@@ -4,7 +4,7 @@ import React, { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { 
   Copy, CheckCircle2, Loader2, QrCode, CreditCard, 
-  User, ArrowLeft, ShieldCheck, AlertCircle 
+  User, ArrowLeft, ShieldCheck, AlertCircle, Banknote
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -16,6 +16,7 @@ function PaymentContent() {
   const [userName, setUserName] = useState<string>('');
   const [userId, setUserId] = useState<string>('');
   const [transferContent, setTransferContent] = useState<string>('');
+  const [packagePrice, setPackagePrice] = useState<number>(0);
   const [isCopied, setIsCopied] = useState<Record<string, boolean>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -25,7 +26,7 @@ function PaymentContent() {
   const ACCOUNT_NAME = "HOANG QUOC VIET";
   const API_BANK = "https://thueapibank.vn/historyapivpbankneov2/d33a5cde4962560a0138920f20d550df";
 
-  // Khởi tạo dữ liệu người dùng và tạo nội dung chuyển khoản
+  // Khởi tạo dữ liệu người dùng, lấy giá gói và tạo nội dung chuyển khoản
   useEffect(() => {
     const initData = async () => {
       const { data: { session }, error } = await supabase.auth.getSession();
@@ -43,13 +44,27 @@ function PaymentContent() {
       // Tạo nội dung chuyển khoản: MUA [Tên gói] [userName]
       const content = `MUA ${packageName} ${name}`;
       setTransferContent(content);
+
+      // Lấy thông tin giá tiền của gói từ bảng packages
+      const { data: pkgData, error: pkgError } = await supabase
+        .from('packages')
+        .select('limits')
+        .eq('name', packageName)
+        .single();
+
+      if (pkgData && pkgData.limits && !pkgError) {
+        // Dùng Regex để loại bỏ tất cả chữ cái, dấu phẩy, khoảng trắng... chỉ giữ lại số
+        const numericPrice = parseInt(pkgData.limits.replace(/\D/g, ''), 10) || 0;
+        setPackagePrice(numericPrice);
+      }
+
       setIsLoading(false);
     };
 
     initData();
   }, [packageName]);
 
-  // Hệ thống Auto-Check (Polling)
+  // Hệ thống Auto-Check (Polling) API Bank và Chia Hoa Hồng
   useEffect(() => {
     if (!transferContent || !userId) return;
 
@@ -88,7 +103,7 @@ function PaymentContent() {
             .update({ has_purchased_package: true })
             .eq('id', userId);
 
-          // 2. GỌI HÀM RPC ĐỂ CHIA HOA HỒNG TỰ ĐỘNG
+          // 2. GỌI HÀM RPC ĐỂ CHIA HOA HỒNG TỰ ĐỘNG CHO F1, F2, F3
           if (paidAmount > 0) {
               const { error: rpcError } = await supabase.rpc('distribute_commission', { 
                   p_buyer_id: userId, 
@@ -137,7 +152,8 @@ function PaymentContent() {
     );
   }
 
-  const qrUrl = `https://img.vietqr.io/image/VPBank-${ACCOUNT_NUMBER}-qr_only.png?amount=0&addInfo=${encodeURIComponent(transferContent)}&accountName=${encodeURIComponent(ACCOUNT_NAME)}`;
+  // Tích hợp số tiền động (packagePrice) vào mã VietQR
+  const qrUrl = `https://img.vietqr.io/image/VPBank-${ACCOUNT_NUMBER}-qr_only.png?amount=${packagePrice}&addInfo=${encodeURIComponent(transferContent)}&accountName=${encodeURIComponent(ACCOUNT_NAME)}`;
 
   return (
     <div className="min-h-screen bg-[#F5F7FB] flex items-center justify-center p-4 font-sans text-slate-800">
@@ -243,6 +259,25 @@ function PaymentContent() {
               </button>
             </div>
 
+            {/* SỐ TIỀN CẦN THANH TOÁN (MỚI THÊM) */}
+            <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl flex items-center justify-between group">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white rounded-lg shadow-sm">
+                  <Banknote className="w-5 h-5 text-rose-500" />
+                </div>
+                <div>
+                  <p className="text-xs text-rose-500 font-semibold uppercase tracking-wider">Số tiền cần thanh toán</p>
+                  <p className="text-xl font-extrabold text-rose-600 tracking-wide">{packagePrice > 0 ? packagePrice.toLocaleString('vi-VN') : '0'} VNĐ</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => handleCopy(packagePrice.toString(), 'price')}
+                className="text-rose-400 hover:text-rose-600 transition-colors p-2"
+              >
+                {isCopied['price'] ? <CheckCircle2 className="w-5 h-5 text-emerald-500" /> : <Copy className="w-5 h-5" />}
+              </button>
+            </div>
+
             {/* Nội dung chuyển khoản (Quan trọng nhất) */}
             <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex items-center justify-between relative overflow-hidden">
               <div className="absolute left-0 top-0 bottom-0 w-1 bg-amber-400"></div>
@@ -268,7 +303,7 @@ function PaymentContent() {
             </div>
             
             <p className="text-xs text-rose-500 italic mt-2 flex items-start gap-1">
-              <span className="font-bold">*Lưu ý:</span> Bạn phải nhập chính xác nội dung chuyển khoản ở trên để hệ thống ghi nhận thanh toán tự động.
+              <span className="font-bold">*Lưu ý:</span> Bạn phải nhập chính xác Nội dung chuyển khoản và Số tiền ở trên để hệ thống ghi nhận thanh toán tự động.
             </p>
           </div>
         </div>
