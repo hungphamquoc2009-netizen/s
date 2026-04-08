@@ -100,7 +100,6 @@ export default function FintechDashboard() {
       .order('purchased_at', { ascending: false });
     if (myPkgs) setMyPackages(myPkgs);
 
-    // Cập nhật lấy 100 giao dịch mới nhất để hiển thị cho Tab Lịch sử giao dịch
     const { data: txs } = await supabase
       .from('transactions')
       .select('*')
@@ -115,29 +114,47 @@ export default function FintechDashboard() {
     const { data: eventsData } = await supabase.from('events').select('*').order('created_at', { ascending: false });
     if (eventsData) setEvents(eventsData);
 
-    const { data: lbData } = await supabase.from('leaderboards').select('*').order('invites', { ascending: false });
-    if (lbData) setLeaderboardData(lbData);
+    try {
+      const { data: lbData, error } = await supabase.rpc('get_leaderboard');
+      
+      if (lbData && lbData.length > 0) {
+        const lbFormatted = lbData.map((row: any) => ({
+            id: row.id,
+            name: `User_${row.id.substring(0, 8)}`,
+            invites: row.invites,
+            reward: (row.invites * 50000).toLocaleString('vi-VN') + ' ₫' 
+        }));
+        setLeaderboardData(lbFormatted);
+      } else {
+        setLeaderboardData([]);
+      }
+    } catch (err) {
+      console.error("Lỗi lấy dữ liệu BXH:", err);
+    }
 
     const { data: configData } = await supabase.from('settings').select('cskh_link').limit(1).single();
     if (configData && configData.cskh_link) setCskhLink(configData.cskh_link);
 
+    // XỬ LÝ LẤY DATA GIỚI THIỆU: Gọi RPC để vượt qua RLS
     try {
-      const { data: f1Data } = await supabase.from('profiles').select('id, created_at').eq('referred_by', session.user.id);
-      const f1List = (f1Data || []).map(p => ({ ...p, level: 'F1' }));
-      let f2List: any[] = []; let f3List: any[] = [];
-      if (f1List.length > 0) {
-          const f1Ids = f1List.map(p => p.id);
-          const { data: f2Data } = await supabase.from('profiles').select('id, created_at, referred_by').in('referred_by', f1Ids);
-          f2List = (f2Data || []).map(p => ({ ...p, level: 'F2' }));
+      const { data: refsData, error: refsError } = await supabase.rpc('get_my_referrals', { p_user_id: session.user.id });
+      if (refsData && !refsError) {
+          const f1List = refsData.filter((r: any) => r.level === 'F1');
+          const f2List = refsData.filter((r: any) => r.level === 'F2');
+          const f3List = refsData.filter((r: any) => r.level === 'F3');
+          
+          setRefStats({ 
+              f1: f1List.length, 
+              f2: f2List.length, 
+              f3: f3List.length, 
+              total: refsData.length 
+          });
+          
+          const sortedList = [...refsData].sort((a: any, b: any) => 
+              (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0)
+          );
+          setReferralList(sortedList);
       }
-      if (f2List.length > 0) {
-          const f2Ids = f2List.map(p => p.id);
-          const { data: f3Data } = await supabase.from('profiles').select('id, created_at, referred_by').in('referred_by', f2Ids);
-          f3List = (f3Data || []).map(p => ({ ...p, level: 'F3' }));
-      }
-      setRefStats({ f1: f1List.length, f2: f2List.length, f3: f3List.length, total: f1List.length + f2List.length + f3List.length });
-      const combinedList = [...f1List, ...f2List, ...f3List].sort((a, b) => (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0));
-      setReferralList(combinedList);
     } catch (err) {}
   };
 
