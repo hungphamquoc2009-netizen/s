@@ -42,7 +42,6 @@ function PaymentContent() {
       
       // Tạo nội dung chuyển khoản: MUA [Tên gói] [userName]
       const content = `MUA ${packageName} ${name}`;
-      // Xóa dấu cách thừa và ký tự đặc biệt nếu cần để QR dễ quét hơn
       setTransferContent(content);
       setIsLoading(false);
     };
@@ -61,19 +60,45 @@ function PaymentContent() {
         const res = await fetch(API_BANK);
         const data = await res.json();
         
-        // Chuyển toàn bộ response thành string và lowercase để tìm kiếm nội dung an toàn nhất
-        const responseString = JSON.stringify(data).toLowerCase();
         const targetContent = transferContent.toLowerCase().trim();
 
-        if (responseString.includes(targetContent)) {
-          // Nếu tìm thấy nội dung chuyển khoản trong lịch sử giao dịch
-          clearInterval(intervalId); // Dừng polling ngay lập tức
+        // Xử lý linh hoạt format dữ liệu của API Bank (có thể là data.data, data.transactions, hoặc trực tiếp data)
+        let transactionsArray = [];
+        if (Array.isArray(data)) transactionsArray = data;
+        else if (data.data && Array.isArray(data.data)) transactionsArray = data.data;
+        else if (data.transactions && Array.isArray(data.transactions)) transactionsArray = data.transactions;
+        else if (data.records && Array.isArray(data.records)) transactionsArray = data.records;
+
+        // Tìm giao dịch chứa nội dung chuyển khoản tương ứng
+        const matchedTx = transactionsArray.find((tx: any) => {
+            const txString = JSON.stringify(tx).toLowerCase();
+            return txString.includes(targetContent);
+        });
+
+        if (matchedTx) {
+          // Nếu tìm thấy giao dịch hợp lệ
+          clearInterval(intervalId); // Dừng polling
           
-          // Cập nhật trạng thái đã mua gói vào Supabase
+          // Lấy chính xác số tiền khách đã chuyển (Tùy API trả về key là amount, creditAmount hay sotien)
+          const paidAmount = Number(matchedTx.amount || matchedTx.creditAmount || matchedTx.sotien || matchedTx.tien || 0);
+
+          // 1. Cập nhật trạng thái đã mua gói vào Supabase
           await supabase
             .from('profiles')
             .update({ has_purchased_package: true })
             .eq('id', userId);
+
+          // 2. GỌI HÀM RPC ĐỂ CHIA HOA HỒNG TỰ ĐỘNG
+          if (paidAmount > 0) {
+              const { error: rpcError } = await supabase.rpc('distribute_commission', { 
+                  p_buyer_id: userId, 
+                  p_amount: paidAmount 
+              });
+
+              if (rpcError) {
+                  console.error("Lỗi khi chia hoa hồng:", rpcError);
+              }
+          }
 
           alert("Thanh toán thành công! Hệ thống đang chuyển hướng về trang chủ.");
           window.location.href = '/';
@@ -112,7 +137,7 @@ function PaymentContent() {
     );
   }
 
-  const qrUrl = `https://img.vietqr.io/image/VPBank-${ACCOUNT_NUMBER}-qr_only.png?amount=0&addInfo=${encodeURIComponent(transferContent)}&accountName=${encodeURIComponent(ACCOUNT_NAME)}`;
+  const qrUrl = `https://img.vietqr.io/image/VPBank-${ACCOUNT_NUMBER}-compact2.png?amount=0&addInfo=${encodeURIComponent(transferContent)}&accountName=${encodeURIComponent(ACCOUNT_NAME)}`;
 
   return (
     <div className="min-h-screen bg-[#F5F7FB] flex items-center justify-center p-4 font-sans text-slate-800">

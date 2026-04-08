@@ -5,7 +5,7 @@ import {
   Bell, Search, User, ArrowDownToLine, ArrowUpFromLine, 
   TrendingUp, Sparkles, CheckCircle2, Info, AlertTriangle, 
   ChevronRight, Activity, LogOut, X, QrCode, Menu, 
-  Home, Users, Calendar, Trophy, HeadphonesIcon, Copy, Link as LinkIcon, Package
+  Home, Users, Calendar, Trophy, HeadphonesIcon, Copy, Link as LinkIcon, Package, Gift
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
@@ -118,9 +118,8 @@ export default function FintechDashboard() {
         .single();
       if (configData && configData.cskh_link) setCskhLink(configData.cskh_link);
 
-      // 7. THUẬT TOÁN LẤY F1, F2, F3 (TỐI ƯU SIÊU NHANH)
+      // 7. THUẬT TOÁN LẤY F1, F2, F3
       try {
-        // Lấy F1
         const { data: f1Data } = await supabase
             .from('profiles')
             .select('id, created_at')
@@ -130,7 +129,6 @@ export default function FintechDashboard() {
         let f2List: any[] = [];
         let f3List: any[] = [];
 
-        // Nếu có F1, lấy tiếp F2
         if (f1List.length > 0) {
             const f1Ids = f1List.map(p => p.id);
             const { data: f2Data } = await supabase
@@ -140,7 +138,6 @@ export default function FintechDashboard() {
             f2List = (f2Data || []).map(p => ({ ...p, level: 'F2' }));
         }
 
-        // Nếu có F2, lấy tiếp F3
         if (f2List.length > 0) {
             const f2Ids = f2List.map(p => p.id);
             const { data: f3Data } = await supabase
@@ -150,7 +147,6 @@ export default function FintechDashboard() {
             f3List = (f3Data || []).map(p => ({ ...p, level: 'F3' }));
         }
 
-        // Cập nhật thống kê
         setRefStats({ 
             f1: f1List.length, 
             f2: f2List.length, 
@@ -158,7 +154,6 @@ export default function FintechDashboard() {
             total: f1List.length + f2List.length + f3List.length 
         });
 
-        // Gộp danh sách để hiển thị bảng
         const combinedList = [...f1List, ...f2List, ...f3List].sort((a, b) => {
             const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
             const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
@@ -440,18 +435,32 @@ export default function FintechDashboard() {
                           txHistory.map((tx) => (
                           <div key={tx.id} className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                              <div className={`p-2.5 rounded-xl ${tx.type === 'nap_tien' ? 'text-blue-500 bg-blue-50' : 'text-rose-500 bg-rose-50'}`}>
-                                {tx.type === 'nap_tien' ? <ArrowDownToLine className="w-5 h-5" /> : <ArrowUpFromLine className="w-5 h-5" />}
+                              {/* CẬP NHẬT LOGIC ĐỔI MÀU THEO 3 LOẠI GIAO DỊCH */}
+                              <div className={`p-2.5 rounded-xl ${
+                                  tx.type === 'nap_tien' ? 'text-blue-500 bg-blue-50' : 
+                                  tx.type === 'hoa_hong' ? 'text-emerald-500 bg-emerald-50' : 
+                                  'text-rose-500 bg-rose-50'
+                              }`}>
+                                {tx.type === 'nap_tien' && <ArrowDownToLine className="w-5 h-5" />}
+                                {tx.type === 'hoa_hong' && <Gift className="w-5 h-5" />}
+                                {tx.type === 'rut_tien' && <ArrowUpFromLine className="w-5 h-5" />}
                               </div>
                               <div>
-                                <p className="text-sm font-bold text-slate-800">{tx.type === 'nap_tien' ? 'Nạp tiền' : 'Rút tiền'}</p>
+                                <p className="text-sm font-bold text-slate-800">
+                                    {tx.type === 'nap_tien' ? 'Nạp tiền' : tx.type === 'hoa_hong' ? 'Hoa hồng giới thiệu' : 'Rút tiền'}
+                                </p>
                                 <p className="text-xs text-slate-400 mt-0.5">
                                     {new Date(tx.created_at).toLocaleDateString('vi-VN')} - <span className={`font-semibold ${tx.status === 'pending' ? 'text-amber-500' : 'text-emerald-500'}`}>{tx.status === 'pending' ? 'Đang xử lý' : 'Thành công'}</span>
                                 </p>
                               </div>
                             </div>
-                            <span className={`text-sm font-bold ${tx.type === 'nap_tien' ? 'text-blue-500' : 'text-slate-800'}`}>
-                              {tx.type === 'nap_tien' ? '+' : '-'}{tx.amount.toLocaleString('vi-VN')}
+                            {/* CẬP NHẬT LOGIC DẤU CỘNG/TRỪ */}
+                            <span className={`text-sm font-bold ${
+                                tx.type === 'nap_tien' ? 'text-blue-500' : 
+                                tx.type === 'hoa_hong' ? 'text-emerald-500' : 
+                                'text-slate-800'
+                            }`}>
+                              {tx.type === 'nap_tien' || tx.type === 'hoa_hong' ? '+' : '-'}{tx.amount.toLocaleString('vi-VN')}
                             </span>
                           </div>
                         ))
