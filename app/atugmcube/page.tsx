@@ -97,8 +97,16 @@ export default function AdminDashboard() {
         const { data: txs } = await supabase.from('transactions').select('*').order('created_at', { ascending: false });
         if (txs) setTransactions(txs);
 
-        const { data: pkgs } = await supabase.from('packages').select('*').order('created_at', { ascending: true });
-        if (pkgs) setPackages(pkgs);
+        const { data: pkgs } = await supabase.from('packages').select('*');
+        if (pkgs) {
+            // Sắp xếp các gói theo giá tiền (lấy số từ chuỗi limits) từ thấp đến cao
+            const sortedPkgs = pkgs.sort((a: any, b: any) => {
+                const priceA = parseInt((a.limits || '').toString().replace(/\D/g, ''), 10) || 0;
+                const priceB = parseInt((b.limits || '').toString().replace(/\D/g, ''), 10) || 0;
+                return priceA - priceB;
+            });
+            setPackages(sortedPkgs);
+        }
 
         const { data: uPkgs } = await supabase.from('user_packages').select('*').order('purchased_at', { ascending: false });
         if (uPkgs) setUserPackages(uPkgs);
