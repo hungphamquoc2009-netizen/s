@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { 
   Users, Activity, CreditCard, Package, LogOut, Check, X, Edit, EyeOff, Plus, ArrowDownToLine, ArrowUpFromLine, Clock, LayoutDashboard,
   MoreVertical, ChevronUp, ChevronDown, Gift, Trash2, Search, Calendar, Trophy, Settings as SettingsIcon, Image as ImageIcon, UploadCloud, Loader2,
-  History, DollarSign // Bổ sung icon mới
+  History, DollarSign, MinusCircle, UserPlus, ShieldAlert // Bổ sung icon mới
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -43,10 +43,11 @@ export default function AdminDashboard() {
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // === TÍNH NĂNG MỚI: CÁC STATE CHO QUẢN LÝ KHÁCH HÀNG CHI TIẾT ===
+  // === CÁC STATE CHO QUẢN LÝ KHÁCH HÀNG CHI TIẾT ===
   // 1. Xem LSGD
   const [isTxsModalOpen, setIsTxsModalOpen] = useState(false);
   const [selectedUserTxs, setSelectedUserTxs] = useState<any>(null);
+  const [txFilter, setTxFilter] = useState('all'); // Nâng cấp: Bộ lọc LSGD
 
   // 2. Quản lý gói khách
   const [isManagePkgModalOpen, setIsManagePkgModalOpen] = useState(false);
@@ -58,6 +59,11 @@ export default function AdminDashboard() {
   const [isAddMoneyModalOpen, setIsAddMoneyModalOpen] = useState(false);
   const [addMoneyUser, setAddMoneyUser] = useState<any>(null);
   const [addMoneyAmount, setAddMoneyAmount] = useState('');
+
+  // 4. Trừ tiền (Mới bổ sung)
+  const [isDeductMoneyModalOpen, setIsDeductMoneyModalOpen] = useState(false);
+  const [deductMoneyUser, setDeductMoneyUser] = useState<any>(null);
+  const [deductMoneyAmount, setDeductMoneyAmount] = useState('');
   // ===============================================================
 
   const getBankCode = (fullName: string) => {
@@ -192,9 +198,10 @@ export default function AdminDashboard() {
     await loadData(true);
   };
 
-  // === TÍNH NĂNG MỚI: HÀM XỬ LÝ KHÁCH HÀNG (LSGD, THÊM GÓI, CỘNG TIỀN) ===
+  // === HÀM XỬ LÝ KHÁCH HÀNG (LSGD, THÊM GÓI, CỘNG TIỀN, TRỪ TIỀN) ===
   const openUserTxs = (user: any) => {
     setSelectedUserTxs(user);
+    setTxFilter('all');
     setIsTxsModalOpen(true);
   };
 
@@ -247,12 +254,10 @@ export default function AdminDashboard() {
 
     if (!confirm(`Xác nhận cộng ${amount.toLocaleString('vi-VN')} VNĐ vào tài khoản khách hàng này?`)) return;
 
-    // Cập nhật số dư
     const newBalance = (addMoneyUser.balance || 0) + amount;
     const { error: err1 } = await supabase.from('profiles').update({ balance: newBalance }).eq('id', addMoneyUser.id);
     if (err1) return alert('Lỗi cập nhật số dư: ' + err1.message);
 
-    // Ghi nhận lịch sử giao dịch (Giả lập nạp tiền từ hệ thống)
     await supabase.from('transactions').insert([{
         user_id: addMoneyUser.id,
         type: 'nap_tien',
@@ -264,6 +269,41 @@ export default function AdminDashboard() {
 
     alert('Cộng tiền thành công!');
     setIsAddMoneyModalOpen(false);
+    await loadData(true);
+  };
+
+  // NÂNG CẤP: Chức năng Trừ tiền
+  const openDeductMoney = (user: any) => {
+    setDeductMoneyUser(user);
+    setDeductMoneyAmount('');
+    setIsDeductMoneyModalOpen(true);
+  };
+
+  const handleDeductMoney = async () => {
+    const amount = parseInt(deductMoneyAmount);
+    if (isNaN(amount) || amount <= 0) return alert('Số tiền không hợp lệ');
+
+    if ((deductMoneyUser.balance || 0) < amount) {
+        if (!confirm('Số tiền muốn trừ lớn hơn số dư hiện tại của khách. Khách sẽ bị âm tiền. Bạn có chắc chắn muốn tiếp tục?')) return;
+    } else {
+        if (!confirm(`Xác nhận trừ ${amount.toLocaleString('vi-VN')} VNĐ khỏi tài khoản khách hàng này?`)) return;
+    }
+
+    const newBalance = (deductMoneyUser.balance || 0) - amount;
+    const { error: err1 } = await supabase.from('profiles').update({ balance: newBalance }).eq('id', deductMoneyUser.id);
+    if (err1) return alert('Lỗi cập nhật số dư: ' + err1.message);
+
+    await supabase.from('transactions').insert([{
+        user_id: deductMoneyUser.id,
+        type: 'thu_hoi',
+        amount: amount,
+        status: 'success',
+        bank_name: 'HỆ THỐNG',
+        account_name: 'Admin thu hồi / trừ tiền'
+    }]);
+
+    alert('Trừ tiền thành công!');
+    setIsDeductMoneyModalOpen(false);
     await loadData(true);
   };
   // ======================================================================
@@ -421,7 +461,7 @@ export default function AdminDashboard() {
       }
   });
 
-  // === TÍNH NĂNG MỚI: TÍNH TOÁN THỐNG KÊ NGƯỜI CHƠI THEO GÓI ===
+  // TÍNH TOÁN THỐNG KÊ NGƯỜI CHƠI
   let usersBoughtAllTime = new Set();
   let usersBoughtToday = new Set();
 
@@ -442,17 +482,23 @@ export default function AdminDashboard() {
   const totalUsersBoughtToday = usersBoughtToday.size;
   const totalUsersNotBoughtAllTime = users.length - totalUsersBoughtAllTime;
   
-  // Chưa mua (Hôm nay): Những người đăng ký tài khoản hôm nay nhưng chưa mua gói nào
   let totalUsersNotBoughtToday = 0;
+  let newUsersTodayCount = 0;
+  let lockedUsersCount = 0;
+
   users.forEach(u => {
       const uDate = new Date(u.created_at);
-      if (uDate >= today) {
+      const isToday = uDate >= today;
+      
+      if (isToday) newUsersTodayCount++;
+      if (u.status === 'locked' || u.status === 'banned') lockedUsersCount++;
+
+      if (isToday) {
           if (!usersBoughtAllTime.has(u.id)) {
               totalUsersNotBoughtToday++;
           }
       }
   });
-  // ===============================================================
 
   const handleSort = (key: 'totalDeposit' | 'totalWithdrawal') => {
     let direction: 'asc' | 'desc' = 'desc';
@@ -485,6 +531,37 @@ export default function AdminDashboard() {
           return 0;
       });
   }
+
+  // Tiền xử lý dữ liệu cho Nâng cấp Popup LSGD
+  let combinedTxs: any[] = [];
+  if (selectedUserTxs) {
+      // 1. Add transactions (Nạp, Rút, Hoa hồng, Thu hồi)
+      transactions.filter(t => t.user_id === selectedUserTxs.id).forEach(t => {
+          combinedTxs.push({
+              id: t.id,
+              date: new Date(t.created_at),
+              type: t.type || 'khac',
+              amount: t.amount || 0,
+              status: t.status,
+              desc: t.type === 'nap_tien' ? 'Nạp tiền / Cộng tiền' : t.type === 'rut_tien' ? 'Rút tiền' : t.type === 'hoa_hong' ? 'Nhận hoa hồng' : t.type === 'thu_hoi' ? 'Thu hồi / Trừ tiền' : 'Giao dịch khác'
+          });
+      });
+      // 2. Add packages (Mua gói)
+      userPackages.filter(p => p.user_id === selectedUserTxs.id).forEach(p => {
+          combinedTxs.push({
+              id: p.id,
+              date: new Date(p.purchased_at || p.created_at),
+              type: 'mua_goi',
+              amount: p.invested_amount || 0,
+              status: p.status === 'active' ? 'success' : 'pending',
+              desc: `Mua gói: ${p.package_name}`
+          });
+      });
+      // Sort newest first
+      combinedTxs.sort((a, b) => b.date.getTime() - a.date.getTime());
+  }
+
+  const filteredTxs = txFilter === 'all' ? combinedTxs : combinedTxs.filter(t => t.type === txFilter);
 
   if (isLoading && users.length === 0) return <div className="min-h-screen flex items-center justify-center font-semibold text-slate-500">Đang tải dữ liệu hệ thống...</div>;
 
@@ -575,6 +652,37 @@ export default function AdminDashboard() {
         {/* TAB: OVERVIEW */}
         {activeTab === 'overview' && (
             <>
+            {/* NÂNG CẤP: THỐNG KÊ NGƯỜI CHƠI TỔNG QUAN (WEB) */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mb-6">
+                <h3 className="font-bold text-lg text-slate-800 mb-4 flex items-center gap-2">
+                    <Users className="w-5 h-5 text-blue-600" /> Tổng quan Người dùng
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                        <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center"><Users className="w-6 h-6"/></div>
+                        <div>
+                            <p className="text-sm font-bold text-slate-500 uppercase">Tổng Tài khoản</p>
+                            <h3 className="text-2xl font-black text-slate-800">{users.length}</h3>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-4 bg-emerald-50 p-4 rounded-xl border border-emerald-100">
+                        <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center"><UserPlus className="w-6 h-6"/></div>
+                        <div>
+                            <p className="text-sm font-bold text-emerald-700 uppercase">Đăng ký Hôm nay</p>
+                            <h3 className="text-2xl font-black text-emerald-700">+{newUsersTodayCount}</h3>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-4 bg-rose-50 p-4 rounded-xl border border-rose-100">
+                        <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center"><ShieldAlert className="w-6 h-6"/></div>
+                        <div>
+                            <p className="text-sm font-bold text-rose-700 uppercase">Bị Khóa / Chặn</p>
+                            <h3 className="text-2xl font-black text-rose-700">{lockedUsersCount}</h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* BLOCK DÒNG TIỀN */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
                     <p className="text-sm font-bold text-slate-500 uppercase">Khách Nạp Hôm Nay</p>
@@ -594,10 +702,10 @@ export default function AdminDashboard() {
                 </div>
             </div>
 
-            {/* BLOCK THỐNG KÊ NGƯỜI CHƠI (TÍNH NĂNG MỚI BỔ SUNG) */}
+            {/* BLOCK THỐNG KÊ GÓI ĐẦU TƯ */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mt-6 mb-6">
                 <h3 className="font-bold text-lg text-slate-800 mb-4 flex items-center gap-2">
-                    <Users className="w-5 h-5 text-blue-600" /> Thống kê Khách hàng
+                    <Package className="w-5 h-5 text-blue-600" /> Thống kê Khách mua gói
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* Nhóm Đã mua gói */}
@@ -699,7 +807,6 @@ export default function AdminDashboard() {
                               <MoreVertical className="w-5 h-5" />
                           </button>
 
-                          {/* MENU CHỨC NĂNG (BỔ SUNG MỚI) */}
                           {openDropdownId === u.id && (
                               <>
                                   <div className="fixed inset-0 z-10" onClick={() => setOpenDropdownId(null)}></div>
@@ -718,6 +825,10 @@ export default function AdminDashboard() {
                                       <button onClick={() => { openAddMoney(u); setOpenDropdownId(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-emerald-50 flex items-center gap-3 text-emerald-600 font-bold transition-colors">
                                           <DollarSign className="w-4 h-4"/> Cộng tiền vào TK
                                       </button>
+                                      {/* NÚT TRỪ TIỀN */}
+                                      <button onClick={() => { openDeductMoney(u); setOpenDropdownId(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-rose-50 flex items-center gap-3 text-rose-600 font-bold transition-colors">
+                                          <MinusCircle className="w-4 h-4"/> Thu hồi / Trừ tiền
+                                      </button>
                                   </div>
                               </>
                           )}
@@ -729,7 +840,6 @@ export default function AdminDashboard() {
             </>
           )}
 
-          {/* CÁC TABS KHÁC GIỮ NGUYÊN */}
           {/* TAB: PACKAGES */}
           {activeTab === 'packages' && (
             <table className="w-full text-left border-collapse">
@@ -1010,7 +1120,7 @@ export default function AdminDashboard() {
 
       </div>
 
-      {/* TẤT CẢ CÁC MODALS TRƯỚC ĐÓ (Edit User, Add Package, Add Event...) GIỮ NGUYÊN */}
+      {/* TẤT CẢ CÁC MODALS */}
       {isEditUserOpen && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl relative">
@@ -1152,75 +1262,64 @@ export default function AdminDashboard() {
       )}
 
       {/* ========================================================= */}
-      {/* CÁC MODALS MỚI BỔ SUNG CHO TÍNH NĂNG QUẢN LÝ KHÁCH HÀNG */}
+      {/* 1. NÂNG CẤP: Modal Xem LSGD (Bổ sung bộ lọc) */}
       {/* ========================================================= */}
-
-      {/* 1. Modal Xem LSGD */}
       {isTxsModalOpen && selectedUserTxs && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white p-6 rounded-2xl w-full max-w-2xl shadow-2xl relative max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="bg-white p-6 rounded-2xl w-full max-w-3xl shadow-2xl relative max-h-[90vh] overflow-hidden flex flex-col">
                 <button onClick={() => setIsTxsModalOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"><X className="w-6 h-6" /></button>
                 <h3 className="font-bold text-xl text-slate-900 mb-1">Lịch sử giao dịch</h3>
                 <p className="text-sm text-slate-500 mb-4 border-b border-slate-200 pb-4">Tài khoản: <span className="font-bold text-blue-600">{getUserEmail(selectedUserTxs.id)}</span></p>
                 
-                <div className="flex-1 overflow-y-auto pr-2">
-                    {/* Bảng Nạp (Mua gói) */}
-                    <h4 className="font-bold text-slate-700 mb-2 text-sm flex items-center gap-2"><ArrowDownToLine className="w-4 h-4 text-emerald-500"/> Lịch sử Nạp/Mua gói</h4>
-                    <div className="bg-slate-50 rounded-xl border border-slate-200 mb-6 overflow-hidden">
-                        <table className="w-full text-left text-sm">
-                            <thead className="bg-slate-100 border-b border-slate-200 text-slate-500">
-                                <tr>
-                                    <th className="p-3 font-semibold">Thời gian</th>
-                                    <th className="p-3 font-semibold">Gói</th>
-                                    <th className="p-3 font-semibold text-right">Số tiền (VNĐ)</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {userPackages.filter(p => p.user_id === selectedUserTxs.id).length === 0 ? (
-                                    <tr><td colSpan={3} className="p-4 text-center text-slate-500">Chưa có giao dịch nạp.</td></tr>
-                                ) : (
-                                    userPackages.filter(p => p.user_id === selectedUserTxs.id).map(p => (
-                                        <tr key={p.id} className="border-b border-slate-100">
-                                            <td className="p-3 text-slate-600">{new Date(p.purchased_at || p.created_at).toLocaleString('vi-VN')}</td>
-                                            <td className="p-3 font-medium text-slate-700">{p.package_name}</td>
-                                            <td className="p-3 font-bold text-emerald-600 text-right">+{p.invested_amount?.toLocaleString('vi-VN')}</td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
+                {/* Tabs Bộ lọc */}
+                <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-2 mb-4">
+                    <button onClick={() => setTxFilter('all')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-colors ${txFilter === 'all' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Tất cả</button>
+                    <button onClick={() => setTxFilter('nap_tien')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-colors ${txFilter === 'nap_tien' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}>Nạp tiền</button>
+                    <button onClick={() => setTxFilter('rut_tien')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-colors ${txFilter === 'rut_tien' ? 'bg-rose-600 text-white' : 'bg-rose-50 text-rose-700 hover:bg-rose-100'}`}>Rút tiền</button>
+                    <button onClick={() => setTxFilter('mua_goi')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-colors ${txFilter === 'mua_goi' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>Mua gói</button>
+                    <button onClick={() => setTxFilter('hoa_hong')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-colors ${txFilter === 'hoa_hong' ? 'bg-purple-600 text-white' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}`}>Hoa hồng</button>
+                    <button onClick={() => setTxFilter('thu_hoi')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap transition-colors ${txFilter === 'thu_hoi' ? 'bg-orange-600 text-white' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'}`}>Thu hồi (Trừ)</button>
+                </div>
 
-                    {/* Bảng Rút tiền */}
-                    <h4 className="font-bold text-slate-700 mb-2 text-sm flex items-center gap-2"><ArrowUpFromLine className="w-4 h-4 text-rose-500"/> Lịch sử Rút tiền</h4>
-                    <div className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">
-                        <table className="w-full text-left text-sm">
-                            <thead className="bg-slate-100 border-b border-slate-200 text-slate-500">
-                                <tr>
-                                    <th className="p-3 font-semibold">Thời gian</th>
-                                    <th className="p-3 font-semibold">Trạng thái</th>
-                                    <th className="p-3 font-semibold text-right">Số tiền (VNĐ)</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {transactions.filter(t => t.user_id === selectedUserTxs.id && t.type === 'rut_tien').length === 0 ? (
-                                    <tr><td colSpan={3} className="p-4 text-center text-slate-500">Chưa có giao dịch rút.</td></tr>
-                                ) : (
-                                    transactions.filter(t => t.user_id === selectedUserTxs.id && t.type === 'rut_tien').map(t => (
-                                        <tr key={t.id} className="border-b border-slate-100">
-                                            <td className="p-3 text-slate-600">{new Date(t.created_at).toLocaleString('vi-VN')}</td>
+                <div className="flex-1 overflow-y-auto pr-2 bg-slate-50 rounded-xl border border-slate-200">
+                    <table className="w-full text-left text-sm">
+                        <thead className="bg-slate-100 border-b border-slate-200 text-slate-500 sticky top-0 shadow-sm z-10">
+                            <tr>
+                                <th className="p-3 font-semibold">Thời gian</th>
+                                <th className="p-3 font-semibold">Loại / Mô tả</th>
+                                <th className="p-3 font-semibold">Trạng thái</th>
+                                <th className="p-3 font-semibold text-right">Số tiền (VNĐ)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {filteredTxs.length === 0 ? (
+                                <tr><td colSpan={4} className="p-8 text-center text-slate-500 font-medium bg-white">Không có giao dịch nào phù hợp.</td></tr>
+                            ) : (
+                                filteredTxs.map((t, idx) => {
+                                    // Phân loại màu sắc tiền
+                                    let amountColor = 'text-slate-600';
+                                    let amountPrefix = '';
+                                    if (t.type === 'nap_tien' || t.type === 'hoa_hong') { amountColor = 'text-emerald-600'; amountPrefix = '+'; }
+                                    else if (t.type === 'rut_tien' || t.type === 'mua_goi' || t.type === 'thu_hoi') { amountColor = 'text-rose-600'; amountPrefix = '-'; }
+
+                                    return (
+                                        <tr key={`${t.id}-${idx}`} className="border-b border-slate-100 bg-white hover:bg-slate-50 transition-colors">
+                                            <td className="p-3 text-slate-500">{t.date.toLocaleString('vi-VN')}</td>
+                                            <td className="p-3 font-bold text-slate-700">{t.desc}</td>
                                             <td className="p-3">
                                                 <span className={`text-xs font-bold ${t.status === 'success' ? 'text-emerald-600' : t.status === 'rejected' ? 'text-rose-600' : t.status === 'pending' ? 'text-amber-600' : 'text-slate-500'}`}>
-                                                    {t.status === 'success' ? 'Thành công' : t.status === 'pending' ? 'Chờ duyệt' : t.status === 'rejected' ? 'Từ chối' : 'Treo'}
+                                                    {t.status === 'success' ? 'Thành công' : t.status === 'pending' ? 'Đang xử lý' : t.status === 'rejected' ? 'Từ chối' : 'Treo/Lỗi'}
                                                 </span>
                                             </td>
-                                            <td className="p-3 font-bold text-rose-600 text-right">-{t.amount?.toLocaleString('vi-VN')}</td>
+                                            <td className={`p-3 font-bold text-right ${amountColor}`}>
+                                                {amountPrefix}{t.amount?.toLocaleString('vi-VN')} ₫
+                                            </td>
                                         </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
+                                    );
+                                })
+                            )}
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -1312,6 +1411,41 @@ export default function AdminDashboard() {
                 
                 <button onClick={handleAddMoney} className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition-all">
                     Xác Nhận Cộng
+                </button>
+            </div>
+        </div>
+      )}
+
+      {/* 4. Modal Trừ tiền (MỚI BỔ SUNG) */}
+      {isDeductMoneyModalOpen && deductMoneyUser && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl relative border-t-4 border-rose-500">
+                <button onClick={() => setIsDeductMoneyModalOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"><X className="w-6 h-6" /></button>
+                <h3 className="font-bold text-xl text-slate-900 mb-1 flex items-center gap-2">
+                    <MinusCircle className="w-6 h-6 text-rose-600" /> Thu hồi / Trừ tiền
+                </h3>
+                <p className="text-sm text-slate-500 mb-4">Tài khoản: <span className="font-bold text-blue-600">{getUserEmail(deductMoneyUser.id)}</span></p>
+                <div className="bg-rose-50 rounded-xl p-3 mb-6 flex justify-between items-center border border-rose-100">
+                    <span className="text-sm font-bold text-rose-800">Số dư hiện tại:</span>
+                    <span className="font-black text-rose-600">{(deductMoneyUser.balance || 0).toLocaleString('vi-VN')} ₫</span>
+                </div>
+
+                <div className="mb-2">
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Số tiền muốn trừ (VNĐ)</label>
+                    <input 
+                        type="number" 
+                        placeholder="VD: 500000" 
+                        value={deductMoneyAmount} 
+                        onChange={e => setDeductMoneyAmount(e.target.value)} 
+                        className="w-full border border-slate-200 bg-slate-50 focus:bg-white rounded-xl p-4 focus:outline-none focus:ring-2 focus:ring-rose-500 transition-all font-bold text-lg text-rose-600" 
+                    />
+                </div>
+                <div className="mb-6 text-xs text-slate-500">
+                    * Hành động này sẽ trừ trực tiếp tiền từ số dư của khách hàng. Lịch sử sẽ ghi nhận là giao dịch "Thu hồi/Trừ tiền" do Admin thực hiện.
+                </div>
+                
+                <button onClick={handleDeductMoney} className="w-full py-3.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl shadow-lg shadow-rose-600/30 transition-all">
+                    Xác Nhận Trừ Tiền
                 </button>
             </div>
         </div>
