@@ -188,6 +188,7 @@ export default function FintechDashboard() {
   useEffect(() => { loadData(); }, []);
 
   // === LOGIC XỬ LÝ NHẬP CODE ===
+  // === LOGIC XỬ LÝ NHẬP CODE (ĐÃ FIX LỖI 406) ===
   const handleApplyGiftcode = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!giftcode.trim()) return;
@@ -197,25 +198,27 @@ export default function FintechDashboard() {
     const formattedCode = giftcode.trim().toUpperCase();
 
     try {
-        // 1. Kiểm tra sự tồn tại và trạng thái của Code
+        // 1. Kiểm tra sự tồn tại của Code (Sử dụng maybeSingle để tránh lỗi 406)
         const { data: codeData, error: codeErr } = await supabase
             .from('giftcodes')
             .select('*')
             .eq('code', formattedCode)
-            .single();
+            .maybeSingle(); 
 
-        if (codeErr || !codeData) throw new Error('Mã Code này không tồn tại!');
+        if (codeErr) throw new Error('Lỗi kiểm tra mã: ' + codeErr.message);
+        if (!codeData) throw new Error('Mã Code này không tồn tại!');
         if (codeData.status !== 'active') throw new Error('Mã Code đã bị khóa hoặc hết hạn!');
         if (codeData.used_count >= codeData.usage_limit) throw new Error('Mã Code này đã hết lượt sử dụng!');
 
-        // 2. Kiểm tra xem User đã từng dùng mã này chưa
-        const { data: usedData } = await supabase
+        // 2. Kiểm tra xem User đã từng dùng mã này chưa (Sử dụng maybeSingle để tránh lỗi 406)
+        const { data: usedData, error: usedErr } = await supabase
             .from('user_giftcodes')
             .select('*')
             .eq('user_id', userId)
             .eq('code', formattedCode)
-            .single();
+            .maybeSingle();
 
+        if (usedErr) throw new Error('Lỗi kiểm tra lịch sử: ' + usedErr.message);
         if (usedData) throw new Error('Bạn đã sử dụng mã Code này rồi!');
 
         // 3. Tiến hành cộng thưởng
@@ -227,10 +230,12 @@ export default function FintechDashboard() {
         if (errUpdateBalance) throw new Error('Có lỗi xảy ra khi cập nhật số dư. Vui lòng thử lại!');
 
         // Tăng số lượt đã sử dụng của Code lên 1
-        await supabase.from('giftcodes').update({ used_count: codeData.used_count + 1 }).eq('id', codeData.id);
+        const { error: errUpdateCode } = await supabase.from('giftcodes').update({ used_count: codeData.used_count + 1 }).eq('id', codeData.id);
+        if (errUpdateCode) throw new Error('Có lỗi xảy ra khi trừ lượt mã code!');
 
         // Lưu lịch sử nhập code của user
-        await supabase.from('user_giftcodes').insert({ user_id: userId, code: formattedCode, amount: reward });
+        const { error: errInsertHistory } = await supabase.from('user_giftcodes').insert({ user_id: userId, code: formattedCode, amount: reward });
+        if (errInsertHistory) throw new Error('Có lỗi xảy ra khi ghi nhận lịch sử mã code!');
 
         // Tạo log giao dịch để xem trong Lịch sử giao dịch chung
         await supabase.from('transactions').insert({
@@ -242,7 +247,7 @@ export default function FintechDashboard() {
             account_name: 'Nhập Giftcode'
         });
 
-        // Cập nhật giao diện
+        // Cập nhật giao diện lập tức
         setBalance(newBalance);
         setGiftcode('');
         setGiftcodeMessage({ text: `Chúc mừng! Bạn đã nhận được ${reward.toLocaleString('vi-VN')} VNĐ từ mã code.`, type: 'success' });
