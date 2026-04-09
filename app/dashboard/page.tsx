@@ -6,7 +6,7 @@ import {
   TrendingUp, Sparkles, CheckCircle2, Info, AlertTriangle, 
   ChevronRight, Activity, LogOut, X, QrCode, Menu, 
   Home, Users, Calendar, Trophy, HeadphonesIcon, Copy, Link as LinkIcon, Package, Gift, Wallet, Clock, Shield, History,
-  CalendarCheck, Dices, PartyPopper
+  CalendarCheck, Dices, PartyPopper, Ticket // Bổ sung Icon Ticket
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
@@ -48,7 +48,6 @@ export default function FintechDashboard() {
   const [bankAccount, setBankAccount] = useState<string | null>(null);
   const [bankName, setBankName] = useState<string | null>(null);
   const [accountName, setAccountName] = useState<string | null>(null); 
-  // Biến này không còn quyết định việc rút tiền nữa, giữ lại để tương thích data
   const [hasPurchasedPackage, setHasPurchasedPackage] = useState<boolean>(false);
 
   const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
@@ -80,6 +79,12 @@ export default function FintechDashboard() {
   const [wheelRotation, setWheelRotation] = useState<number>(0);
   const [showConfetti, setShowConfetti] = useState<boolean>(false);
   const [prizeMsg, setPrizeMsg] = useState<string | null>(null);
+
+  // === STATE NHẬP CODE (MỚI) ===
+  const [giftcode, setGiftcode] = useState<string>('');
+  const [giftcodeLoading, setGiftcodeLoading] = useState<boolean>(false);
+  const [giftcodeMessage, setGiftcodeMessage] = useState<{text: string, type: 'success' | 'error'} | null>(null);
+  const [giftcodeHistory, setGiftcodeHistory] = useState<any[]>([]);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -149,12 +154,20 @@ export default function FintechDashboard() {
     const { data: eventsData } = await supabase.from('events').select('*').order('created_at', { ascending: false });
     if (eventsData) setEvents(eventsData);
 
+    // Tải danh sách lịch sử nhập code của người dùng
+    try {
+        const { data: gcHistory } = await supabase
+            .from('user_giftcodes')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .order('created_at', { ascending: false });
+        if (gcHistory) setGiftcodeHistory(gcHistory);
+    } catch (err) {}
+
     try {
       const { data: lbData } = await supabase.from('leaderboards').select('*').order('invites', { ascending: false });
       if (lbData) setLeaderboardData(lbData);
-    } catch (err) {
-      console.error("Lỗi lấy dữ liệu BXH:", err);
-    }
+    } catch (err) {}
 
     const { data: configData } = await supabase.from('settings').select('cskh_link').limit(1).single();
     if (configData && configData.cskh_link) setCskhLink(configData.cskh_link);
@@ -174,7 +187,74 @@ export default function FintechDashboard() {
 
   useEffect(() => { loadData(); }, []);
 
-  // === ĐÃ SỬA LỖI ĐIỂM DANH ===
+  // === LOGIC XỬ LÝ NHẬP CODE ===
+  const handleApplyGiftcode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!giftcode.trim()) return;
+    setGiftcodeLoading(true);
+    setGiftcodeMessage(null);
+
+    const formattedCode = giftcode.trim().toUpperCase();
+
+    try {
+        // 1. Kiểm tra sự tồn tại và trạng thái của Code
+        const { data: codeData, error: codeErr } = await supabase
+            .from('giftcodes')
+            .select('*')
+            .eq('code', formattedCode)
+            .single();
+
+        if (codeErr || !codeData) throw new Error('Mã Code này không tồn tại!');
+        if (codeData.status !== 'active') throw new Error('Mã Code đã bị khóa hoặc hết hạn!');
+        if (codeData.used_count >= codeData.usage_limit) throw new Error('Mã Code này đã hết lượt sử dụng!');
+
+        // 2. Kiểm tra xem User đã từng dùng mã này chưa
+        const { data: usedData } = await supabase
+            .from('user_giftcodes')
+            .select('*')
+            .eq('user_id', userId)
+            .eq('code', formattedCode)
+            .single();
+
+        if (usedData) throw new Error('Bạn đã sử dụng mã Code này rồi!');
+
+        // 3. Tiến hành cộng thưởng
+        const reward = codeData.reward_amount;
+        const newBalance = balance + reward;
+
+        // Cập nhật số dư người dùng
+        const { error: errUpdateBalance } = await supabase.from('profiles').update({ balance: newBalance }).eq('id', userId);
+        if (errUpdateBalance) throw new Error('Có lỗi xảy ra khi cập nhật số dư. Vui lòng thử lại!');
+
+        // Tăng số lượt đã sử dụng của Code lên 1
+        await supabase.from('giftcodes').update({ used_count: codeData.used_count + 1 }).eq('id', codeData.id);
+
+        // Lưu lịch sử nhập code của user
+        await supabase.from('user_giftcodes').insert({ user_id: userId, code: formattedCode, amount: reward });
+
+        // Tạo log giao dịch để xem trong Lịch sử giao dịch chung
+        await supabase.from('transactions').insert({
+            user_id: userId,
+            type: 'nhap_code',
+            amount: reward,
+            status: 'success',
+            bank_name: 'HỆ THỐNG',
+            account_name: 'Nhập Giftcode'
+        });
+
+        // Cập nhật giao diện
+        setBalance(newBalance);
+        setGiftcode('');
+        setGiftcodeMessage({ text: `Chúc mừng! Bạn đã nhận được ${reward.toLocaleString('vi-VN')} VNĐ từ mã code.`, type: 'success' });
+        loadData();
+
+    } catch (err: any) {
+        setGiftcodeMessage({ text: err.message, type: 'error' });
+    } finally {
+        setGiftcodeLoading(false);
+    }
+  };
+
   const todayStr = new Date().toLocaleDateString('en-CA'); 
   const isCheckedInToday = lastCheckInDate === todayStr;
 
@@ -213,17 +293,14 @@ export default function FintechDashboard() {
           if (addedBalance > 0) updates.balance = balance + addedBalance;
           if (addedSpin > 0) updates.spin_count = spinCount + addedSpin;
 
-          // Thực hiện update và check lỗi
           const { error } = await supabase.from('profiles').update(updates).eq('id', userId);
-          if (error) throw error; // Ném lỗi để log vào khối catch nếu có
+          if (error) throw error; 
 
-          // Cập nhật State trực tiếp trên giao diện để UI nhảy số tiền ngay lập tức
           setCheckInStreak(newStreak);
           setLastCheckInDate(todayStr);
           if (addedBalance > 0) setBalance(prev => prev + addedBalance);
           if (addedSpin > 0) setSpinCount(prev => prev + addedSpin);
 
-          // Ghi nhận lịch sử giao dịch nếu có thưởng tiền
           if (addedBalance > 0) {
               await supabase.from('transactions').insert({
                   user_id: userId,
@@ -236,14 +313,13 @@ export default function FintechDashboard() {
           }
 
           alert(rewardMessage);
-          loadData(); // Gọi lại để load lịch sử giao dịch mới
+          loadData(); 
       } catch (err) {
           console.error(err);
           alert("Lỗi hệ thống khi điểm danh! Hãy thử lại.");
       }
   };
 
-  // === LOGIC VÒNG QUAY MAY MẮN (Đã tối ưu cập nhật local state) ===
   const handleSpinWheel = async () => {
       if (spinCount <= 0) {
           alert("Bạn đã hết lượt quay! Hãy nạp thêm 60,000đ để nhận 1 lượt quay.");
@@ -296,7 +372,6 @@ export default function FintechDashboard() {
               const { error } = await supabase.from('profiles').update(updates).eq('id', userId);
               if (error) throw error;
 
-              // Cập nhật UI ngay lập tức
               setSpinCount(newSpinCount);
               if (selectedPrize.value !== -1) setBalance(newBalance);
 
@@ -322,10 +397,7 @@ export default function FintechDashboard() {
     window.location.href = '/login';
   };
 
-  // === ĐÃ SỬA LỖI ĐIỀU KIỆN RÚT TIỀN ===
   const handleOpenWithdraw = () => {
-      // FIX LỖI: Kiểm tra trực tiếp chiều dài của mảng myPackages (lịch sử mua gói)
-      // Chắc chắn 100% nếu đã mua gói sẽ cho phép rút tiền.
       if (myPackages.length === 0) { 
           alert("Bạn cần phải mua ít nhất 1 gói để có thể thực hiện rút tiền!"); 
           return; 
@@ -363,7 +435,6 @@ export default function FintechDashboard() {
           });
 
           if (txError) {
-              // Rollback if insert fails
               await supabase.from('profiles').update({ balance: balance }).eq('id', userId);
               throw txError;
           }
@@ -436,6 +507,7 @@ export default function FintechDashboard() {
     { id: 'home', label: 'Trang chủ', icon: Home },
     { id: 'assets', label: 'Tài sản của tôi', icon: Wallet },
     { id: 'packages', label: 'Gói đầu tư', icon: Package },
+    { id: 'giftcode', label: 'Nhập Code', icon: Ticket }, // Bổ sung Tab Nhập Code
     { id: 'transactions', label: 'Lịch sử giao dịch', icon: History },
     { id: 'referral', label: 'Giới thiệu', icon: Users },
     { id: 'events', label: 'Sự kiện', icon: Calendar },
@@ -445,7 +517,6 @@ export default function FintechDashboard() {
   return (
     <div className="flex h-screen bg-[#F5F7FB] font-sans text-slate-800 overflow-hidden relative">
       
-      {/* Hiệu ứng Confetti đơn giản bằng CSS khi trúng thưởng */}
       {showConfetti && (
           <div className="fixed inset-0 pointer-events-none z-[200] flex items-center justify-center overflow-hidden">
               <div className="absolute text-5xl animate-bounce text-emerald-500 font-bold bg-white px-8 py-4 rounded-3xl shadow-2xl border-4 border-emerald-100 flex items-center gap-3">
@@ -543,10 +614,8 @@ export default function FintechDashboard() {
                     </div>
                   </div>
 
-                  {/* ================= TÍNH NĂNG MỚI: ĐIỂM DANH & VÒNG QUAY ================= */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       
-                      {/* KHỐI ĐIỂM DANH */}
                       <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 flex flex-col justify-between relative overflow-hidden">
                           <div className="absolute top-0 right-0 p-4 opacity-10">
                               <CalendarCheck className="w-24 h-24 text-[#1E6EFF]" />
@@ -570,7 +639,6 @@ export default function FintechDashboard() {
                                                   {isPassed ? <CheckCircle2 className="w-4 h-4" /> : day}
                                               </div>
                                               <span className="text-[10px] font-medium text-slate-500 uppercase">Ngày {day}</span>
-                                              {/* Đường nối */}
                                               {day < 7 && <div className={`absolute top-4 left-4 w-full h-1 -z-0 ${day < checkInStreak ? 'bg-emerald-500' : 'bg-slate-100'}`} style={{ width: 'calc(100% + 20px)' }}></div>}
                                           </div>
                                       );
@@ -591,7 +659,6 @@ export default function FintechDashboard() {
                           </button>
                       </div>
 
-                      {/* KHỐI VÒNG QUAY MAY MẮN */}
                       <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 flex flex-col items-center relative">
                           <h3 className="font-bold text-lg text-slate-800 mb-1 flex items-center gap-2 w-full">
                               <Dices className="w-5 h-5 text-amber-500" /> Vòng quay may mắn
@@ -647,7 +714,6 @@ export default function FintechDashboard() {
                       </div>
 
                   </div>
-                  {/* ================= HẾT PHẦN TÍNH NĂNG MỚI ================= */}
 
                   <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
                     <h3 className="font-bold text-lg text-slate-800 mb-6">Balance Growth</h3>
@@ -679,23 +745,23 @@ export default function FintechDashboard() {
                           txHistory.slice(0, 5).map((tx) => (
                           <div key={tx.id} className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                              <div className={`p-2.5 rounded-xl ${tx.type === 'nap_tien' ? 'text-blue-500 bg-blue-50' : tx.type === 'hoa_hong' || tx.type === 'nhan_lai' || tx.type === 'trung_thuong' ? 'text-emerald-500 bg-emerald-50' : 'text-rose-500 bg-rose-50'}`}>
+                              <div className={`p-2.5 rounded-xl ${tx.type === 'nap_tien' ? 'text-blue-500 bg-blue-50' : tx.type === 'hoa_hong' || tx.type === 'nhan_lai' || tx.type === 'trung_thuong' || tx.type === 'nhap_code' ? 'text-emerald-500 bg-emerald-50' : 'text-rose-500 bg-rose-50'}`}>
                                 {tx.type === 'nap_tien' && <ArrowDownToLine className="w-5 h-5" />}
-                                {(tx.type === 'hoa_hong' || tx.type === 'trung_thuong') && <Gift className="w-5 h-5" />}
+                                {(tx.type === 'hoa_hong' || tx.type === 'trung_thuong' || tx.type === 'nhap_code') && <Gift className="w-5 h-5" />}
                                 {tx.type === 'nhan_lai' && <TrendingUp className="w-5 h-5" />}
                                 {tx.type === 'rut_tien' && <ArrowUpFromLine className="w-5 h-5" />}
                               </div>
                               <div>
                                 <p className="text-sm font-bold text-slate-800">
-                                    {tx.type === 'nap_tien' ? 'Nạp tiền' : tx.type === 'trung_thuong' ? 'Trúng thưởng vòng quay' : tx.type === 'hoa_hong' ? 'Thưởng/Hoa hồng' : tx.type === 'nhan_lai' ? 'Nhận lãi đầu tư' : 'Rút tiền'}
+                                    {tx.type === 'nap_tien' ? 'Nạp tiền' : tx.type === 'trung_thuong' ? 'Trúng thưởng vòng quay' : tx.type === 'hoa_hong' ? 'Thưởng/Hoa hồng' : tx.type === 'nhan_lai' ? 'Nhận lãi đầu tư' : tx.type === 'nhap_code' ? 'Nhập Code' : 'Rút tiền'}
                                 </p>
                                 <p className="text-xs text-slate-400 mt-0.5">
                                     {new Date(tx.created_at).toLocaleDateString('vi-VN')} - <span className={`font-semibold ${tx.status === 'pending' ? 'text-amber-500' : 'text-emerald-500'}`}>{tx.status === 'pending' ? 'Đang xử lý' : 'Thành công'}</span>
                                 </p>
                               </div>
                             </div>
-                            <span className={`text-sm font-bold ${tx.type === 'nap_tien' ? 'text-blue-500' : tx.type === 'hoa_hong' || tx.type === 'nhan_lai' || tx.type === 'trung_thuong' ? 'text-emerald-500' : 'text-slate-800'}`}>
-                              {tx.type === 'nap_tien' || tx.type === 'hoa_hong' || tx.type === 'nhan_lai' || tx.type === 'trung_thuong' ? '+' : '-'}{tx.amount.toLocaleString('vi-VN')}
+                            <span className={`text-sm font-bold ${tx.type === 'nap_tien' ? 'text-blue-500' : tx.type === 'hoa_hong' || tx.type === 'nhan_lai' || tx.type === 'trung_thuong' || tx.type === 'nhap_code' ? 'text-emerald-500' : 'text-slate-800'}`}>
+                              {tx.type === 'nap_tien' || tx.type === 'hoa_hong' || tx.type === 'nhan_lai' || tx.type === 'trung_thuong' || tx.type === 'nhap_code' ? '+' : '-'}{tx.amount.toLocaleString('vi-VN')}
                             </span>
                           </div>
                         ))
@@ -706,7 +772,6 @@ export default function FintechDashboard() {
               </div>
             )}
 
-            {/* ================= TAB: LỊCH SỬ GIAO DỊCH ================= */}
             {activeTab === 'transactions' && (
               <div className="max-w-5xl mx-auto animate-in fade-in duration-300">
                 <h2 className="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-2">
@@ -734,18 +799,18 @@ export default function FintechDashboard() {
                               <td className="p-4 text-slate-500 font-medium">{new Date(tx.created_at).toLocaleString('vi-VN')}</td>
                               <td className="p-4 font-medium text-slate-800">
                                 <div className="flex items-center gap-3">
-                                  <div className={`p-2 rounded-lg ${tx.type === 'nap_tien' ? 'text-blue-500 bg-blue-50' : tx.type === 'hoa_hong' || tx.type === 'nhan_lai' || tx.type === 'trung_thuong' ? 'text-emerald-500 bg-emerald-50' : 'text-rose-500 bg-rose-50'}`}>
+                                  <div className={`p-2 rounded-lg ${tx.type === 'nap_tien' ? 'text-blue-500 bg-blue-50' : tx.type === 'hoa_hong' || tx.type === 'nhan_lai' || tx.type === 'trung_thuong' || tx.type === 'nhap_code' ? 'text-emerald-500 bg-emerald-50' : 'text-rose-500 bg-rose-50'}`}>
                                     {tx.type === 'nap_tien' && <ArrowDownToLine className="w-4 h-4" />}
-                                    {(tx.type === 'hoa_hong' || tx.type === 'trung_thuong') && <Gift className="w-4 h-4" />}
+                                    {(tx.type === 'hoa_hong' || tx.type === 'trung_thuong' || tx.type === 'nhap_code') && <Gift className="w-4 h-4" />}
                                     {tx.type === 'nhan_lai' && <TrendingUp className="w-4 h-4" />}
                                     {tx.type === 'rut_tien' && <ArrowUpFromLine className="w-4 h-4" />}
                                   </div>
-                                  {tx.type === 'nap_tien' ? 'Nạp tiền' : tx.type === 'trung_thuong' ? 'Trúng thưởng' : tx.type === 'hoa_hong' ? 'Thưởng/Hoa hồng' : tx.type === 'nhan_lai' ? 'Nhận lãi' : 'Rút tiền'}
+                                  {tx.type === 'nap_tien' ? 'Nạp tiền' : tx.type === 'trung_thuong' ? 'Trúng thưởng' : tx.type === 'hoa_hong' ? 'Thưởng/Hoa hồng' : tx.type === 'nhan_lai' ? 'Nhận lãi' : tx.type === 'nhap_code' ? 'Nhập Code' : 'Rút tiền'}
                                 </div>
                               </td>
                               <td className="p-4 text-slate-500 max-w-[200px] truncate" title={tx.bank_name}>{tx.bank_name || '-'}</td>
-                              <td className={`p-4 text-right font-bold text-base ${tx.type === 'nap_tien' ? 'text-blue-500' : tx.type === 'hoa_hong' || tx.type === 'nhan_lai' || tx.type === 'trung_thuong' ? 'text-emerald-500' : 'text-slate-800'}`}>
-                                {tx.type === 'nap_tien' || tx.type === 'hoa_hong' || tx.type === 'nhan_lai' || tx.type === 'trung_thuong' ? '+' : '-'}{tx.amount.toLocaleString('vi-VN')}
+                              <td className={`p-4 text-right font-bold text-base ${tx.type === 'nap_tien' ? 'text-blue-500' : tx.type === 'hoa_hong' || tx.type === 'nhan_lai' || tx.type === 'trung_thuong' || tx.type === 'nhap_code' ? 'text-emerald-500' : 'text-slate-800'}`}>
+                                {tx.type === 'nap_tien' || tx.type === 'hoa_hong' || tx.type === 'nhan_lai' || tx.type === 'trung_thuong' || tx.type === 'nhap_code' ? '+' : '-'}{tx.amount.toLocaleString('vi-VN')}
                               </td>
                               <td className="p-4 text-center">
                                 <span className={`px-3 py-1 rounded-full text-xs font-bold ${tx.status === 'success' ? 'bg-emerald-100 text-emerald-700' : tx.status === 'rejected' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>
@@ -848,7 +913,11 @@ export default function FintechDashboard() {
                           <div key={pkg.id || idx} className={`bg-white rounded-2xl p-6 shadow-sm border transition-all duration-300 hover:shadow-xl ${isHighlight ? 'border-[#1E6EFF] ring-2 ring-[#1E6EFF]/20 md:-translate-y-2 relative' : 'border-slate-100 hover:-translate-y-1'}`}>
                             {isHighlight && <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#1E6EFF] text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">{pkg.badge}</span>}
                             <h4 className="text-slate-500 font-medium">{pkg.name}</h4>
-                            <div className="my-4"><span className="text-4xl font-extrabold text-slate-900">{pkg.return_rate}</span><span className="text-slate-500 font-medium">/yr</span></div>
+                            <div className="my-4">
+                                <span className="text-4xl font-extrabold text-slate-900">{pkg.return_rate}</span>
+                                {/* ĐÃ SỬA TỪ /yr SANG / ngày */}
+                                <span className="text-slate-500 font-medium">/ ngày</span>
+                            </div>
                             <div className="space-y-3 mb-6 text-sm">
                               <div className="flex justify-between border-b border-slate-50 pb-2"><span className="text-slate-500">Limits</span><span className="font-bold text-slate-800">{pkg.limits}</span></div>
                               <ul className="space-y-2 mt-4">
@@ -862,6 +931,86 @@ export default function FintechDashboard() {
                         );
                       })
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* ================= TAB NHẬP CODE (MỚI BỔ SUNG) ================= */}
+            {activeTab === 'giftcode' && (
+              <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-300">
+                <h2 className="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-2">
+                  <Ticket className="w-6 h-6 text-[#1E6EFF]" /> Đổi Mã Quà Tặng
+                </h2>
+
+                <div className="bg-white rounded-2xl p-8 md:p-12 shadow-sm border border-slate-100 text-center relative overflow-hidden">
+                    <div className="absolute top-0 right-0 -mr-8 -mt-8 opacity-5">
+                        <Gift className="w-48 h-48 text-[#1E6EFF]" />
+                    </div>
+                    
+                    <div className="inline-flex items-center justify-center p-5 bg-blue-50 text-blue-600 rounded-full mb-6 relative z-10">
+                        <Gift className="w-10 h-10" />
+                    </div>
+                    <h3 className="text-3xl font-extrabold text-slate-900 mb-3 relative z-10">Nhập Code - Nhận Quà Ngay</h3>
+                    <p className="text-slate-500 mb-10 max-w-md mx-auto relative z-10 text-lg">
+                        Nhập mã Giftcode do Admin cung cấp để nhận ngay tiền thưởng trực tiếp vào số dư.
+                    </p>
+
+                    <form onSubmit={handleApplyGiftcode} className="max-w-lg mx-auto relative z-10">
+                        <input
+                            type="text"
+                            required
+                            placeholder="Nhập mã CODE tại đây..."
+                            value={giftcode}
+                            onChange={(e) => setGiftcode(e.target.value.toUpperCase())}
+                            className="w-full pl-6 pr-36 py-5 bg-slate-50 border-2 border-slate-200 rounded-2xl focus:outline-none focus:border-[#1E6EFF] focus:ring-4 focus:ring-[#1E6EFF]/10 text-xl font-black text-slate-800 tracking-widest uppercase transition-all shadow-inner"
+                        />
+                        <button
+                            type="submit"
+                            disabled={giftcodeLoading || !giftcode.trim()}
+                            className="absolute right-2 top-2 bottom-2 bg-gradient-to-r from-blue-600 to-[#1E6EFF] text-white font-bold px-8 text-lg rounded-xl shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed"
+                        >
+                            {giftcodeLoading ? 'Đang check...' : 'Xác nhận'}
+                        </button>
+                    </form>
+
+                    {giftcodeMessage && (
+                        <div className={`mt-8 p-4 rounded-xl font-bold flex items-center justify-center gap-2 max-w-lg mx-auto animate-in fade-in slide-in-from-bottom-2 ${giftcodeMessage.type === 'success' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-rose-50 text-rose-600 border border-rose-100'}`}>
+                            {giftcodeMessage.type === 'success' ? <CheckCircle2 className="w-6 h-6" /> : <AlertTriangle className="w-6 h-6" />}
+                            {giftcodeMessage.text}
+                        </div>
+                    )}
+                </div>
+
+                <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-100">
+                    <h3 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
+                        <History className="w-5 h-5 text-slate-400" /> Lịch sử sử dụng mã của bạn
+                    </h3>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 text-sm">
+                                    <th className="p-4 font-semibold">Thời gian</th>
+                                    <th className="p-4 font-semibold text-center">Mã Code</th>
+                                    <th className="p-4 font-semibold text-right">Phần thưởng (VNĐ)</th>
+                                </tr>
+                            </thead>
+                            <tbody className="text-sm">
+                                {giftcodeHistory.length === 0 ? (
+                                    <tr><td colSpan={3} className="p-8 text-center text-slate-500">Bạn chưa nhập thành công mã Giftcode nào.</td></tr>
+                                ) : (
+                                    giftcodeHistory.map((item, idx) => (
+                                        <tr key={item.id || idx} className="border-b border-slate-50 hover:bg-slate-50/50">
+                                            <td className="p-4 text-slate-500 font-medium">{new Date(item.created_at).toLocaleString('vi-VN')}</td>
+                                            <td className="p-4 text-center">
+                                                <span className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg font-mono font-bold tracking-wider">{item.code}</span>
+                                            </td>
+                                            <td className="p-4 text-right font-black text-emerald-600 text-base">+{item.amount.toLocaleString('vi-VN')}</td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
               </div>
             )}
@@ -982,7 +1131,6 @@ export default function FintechDashboard() {
                   </div>
                 </div>
                 
-                {/* Khu vực Ghi chú Cơ cấu giải thưởng */}
                 <div className="bg-amber-50 p-5 rounded-b-2xl border-t-0 border border-amber-100">
                   <h4 className="font-bold text-amber-800 mb-3 flex items-center gap-2">
                     <Gift className="w-5 h-5" /> Cơ cấu giải thưởng
