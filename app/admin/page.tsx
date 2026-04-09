@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { 
   Users, Activity, CreditCard, Package, LogOut, Check, X, Edit, EyeOff, Plus, ArrowDownToLine, ArrowUpFromLine, Clock, LayoutDashboard,
   MoreVertical, ChevronUp, ChevronDown, Gift, Trash2, Search, Calendar, Trophy, Settings as SettingsIcon, Image as ImageIcon, UploadCloud, Loader2,
-  History, DollarSign, MinusCircle, UserPlus, ShieldAlert // Bổ sung icon mới
+  History, DollarSign, MinusCircle, UserPlus, ShieldAlert, Ticket // Bổ sung icon Ticket
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -19,6 +19,7 @@ export default function AdminDashboard() {
   const [events, setEvents] = useState<any[]>([]);
   const [leaderboards, setLeaderboards] = useState<any[]>([]);
   const [cskhLink, setCskhLink] = useState('');
+  const [giftcodes, setGiftcodes] = useState<any[]>([]); // State lưu trữ Giftcodes
 
   const [isEditUserOpen, setIsEditUserOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
@@ -39,32 +40,32 @@ export default function AdminDashboard() {
   const [editingLb, setEditingLb] = useState<any>(null);
   const [lbForm, setLbForm] = useState({ name: '', invites: 0, reward: '' });
 
+  // === STATE QUẢN LÝ MÃ CODE (GIFTCODE) ===
+  const [isGiftcodeModalOpen, setIsGiftcodeModalOpen] = useState(false);
+  const [editingGiftcode, setEditingGiftcode] = useState<any>(null);
+  const [gcForm, setGcForm] = useState({ code: '', reward_amount: '', usage_limit: '', status: 'active' });
+
   const [sortConfig, setSortConfig] = useState<{ key: 'totalDeposit' | 'totalWithdrawal', direction: 'asc' | 'desc' } | null>(null);
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   // === CÁC STATE CHO QUẢN LÝ KHÁCH HÀNG CHI TIẾT ===
-  // 1. Xem LSGD
   const [isTxsModalOpen, setIsTxsModalOpen] = useState(false);
   const [selectedUserTxs, setSelectedUserTxs] = useState<any>(null);
-  const [txFilter, setTxFilter] = useState('all'); // Nâng cấp: Bộ lọc LSGD
+  const [txFilter, setTxFilter] = useState('all');
 
-  // 2. Quản lý gói khách
   const [isManagePkgModalOpen, setIsManagePkgModalOpen] = useState(false);
   const [managePkgUser, setManagePkgUser] = useState<any>(null);
   const [selectedNewPkgId, setSelectedNewPkgId] = useState('');
   const [newPkgAmount, setNewPkgAmount] = useState('');
 
-  // 3. Cộng tiền
   const [isAddMoneyModalOpen, setIsAddMoneyModalOpen] = useState(false);
   const [addMoneyUser, setAddMoneyUser] = useState<any>(null);
   const [addMoneyAmount, setAddMoneyAmount] = useState('');
 
-  // 4. Trừ tiền (Mới bổ sung)
   const [isDeductMoneyModalOpen, setIsDeductMoneyModalOpen] = useState(false);
   const [deductMoneyUser, setDeductMoneyUser] = useState<any>(null);
   const [deductMoneyAmount, setDeductMoneyAmount] = useState('');
-  // ===============================================================
 
   const getBankCode = (fullName: string) => {
     if (!fullName) return '';
@@ -109,6 +110,10 @@ export default function AdminDashboard() {
         const { data: settings } = await supabase.from('settings').select('*').limit(1).single();
         if (settings) setCskhLink(settings.cskh_link);
 
+        // Load danh sách Giftcode
+        const { data: gcs } = await supabase.from('giftcodes').select('*').order('created_at', { ascending: false });
+        if (gcs) setGiftcodes(gcs);
+
     } catch (err) {
         console.error("Lỗi hệ thống:", err);
     } finally {
@@ -137,6 +142,9 @@ export default function AdminDashboard() {
     const lbSubscription = supabase.channel('public-leaderboards-changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'leaderboards' }, () => loadData(true)).subscribe();
 
+    const gcSubscription = supabase.channel('public-giftcodes-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'giftcodes' }, () => loadData(true)).subscribe();
+
     return () => {
         supabase.removeChannel(profileSubscription);
         supabase.removeChannel(transactionSubscription);
@@ -144,6 +152,7 @@ export default function AdminDashboard() {
         supabase.removeChannel(uPkgSubscription);
         supabase.removeChannel(eventSubscription);
         supabase.removeChannel(lbSubscription);
+        supabase.removeChannel(gcSubscription);
     };
   }, []);
 
@@ -198,7 +207,6 @@ export default function AdminDashboard() {
     await loadData(true);
   };
 
-  // === HÀM XỬ LÝ KHÁCH HÀNG (LSGD, THÊM GÓI, CỘNG TIỀN, TRỪ TIỀN) ===
   const openUserTxs = (user: any) => {
     setSelectedUserTxs(user);
     setTxFilter('all');
@@ -272,7 +280,6 @@ export default function AdminDashboard() {
     await loadData(true);
   };
 
-  // NÂNG CẤP: Chức năng Trừ tiền
   const openDeductMoney = (user: any) => {
     setDeductMoneyUser(user);
     setDeductMoneyAmount('');
@@ -306,7 +313,6 @@ export default function AdminDashboard() {
     setIsDeductMoneyModalOpen(false);
     await loadData(true);
   };
-  // ======================================================================
 
   const openAddPackage = () => {
     setEditingPackage(null);
@@ -433,6 +439,57 @@ export default function AdminDashboard() {
     }
   };
 
+  // === CÁC HÀM XỬ LÝ MÃ CODE (GIFTCODE) ===
+  const openAddGiftcode = () => {
+    setEditingGiftcode(null);
+    setGcForm({ code: '', reward_amount: '', usage_limit: '100', status: 'active' });
+    setIsGiftcodeModalOpen(true);
+  };
+
+  const openEditGiftcode = (gc: any) => {
+    setEditingGiftcode(gc);
+    setGcForm({ 
+        code: gc.code, 
+        reward_amount: gc.reward_amount?.toString() || '0', 
+        usage_limit: gc.usage_limit?.toString() || '0', 
+        status: gc.status 
+    });
+    setIsGiftcodeModalOpen(true);
+  };
+
+  const saveGiftcodeInfo = async () => {
+    const payload = {
+        code: gcForm.code.toUpperCase().trim(),
+        reward_amount: parseInt(gcForm.reward_amount) || 0,
+        usage_limit: parseInt(gcForm.usage_limit) || 0,
+        status: gcForm.status
+    };
+
+    if (!payload.code) return alert('Vui lòng nhập Mã Code hợp lệ!');
+
+    if (editingGiftcode) {
+        const { error } = await supabase.from('giftcodes').update(payload).eq('id', editingGiftcode.id);
+        if (error) return alert('Lỗi cập nhật mã code: ' + error.message);
+        alert('Cập nhật mã code thành công!');
+    } else {
+        const { error } = await supabase.from('giftcodes').insert([payload]);
+        if (error) return alert('Lỗi thêm mã code: ' + error.message);
+        alert('Đã tạo mã code mới!');
+    }
+    setIsGiftcodeModalOpen(false);
+    await loadData(true);
+  };
+
+  const handleDeleteGiftcode = async (id: string) => {
+    if (confirm('Bạn có chắc chắn muốn xóa mã code này? Người dùng sẽ không thể nhập mã này nữa.')) {
+        const { error } = await supabase.from('giftcodes').delete().eq('id', id);
+        if (error) return alert('Lỗi xóa mã code: ' + error.message);
+        alert('Đã xóa mã code!');
+        await loadData(true);
+    }
+  };
+  // ==========================================
+
   const saveSettingsInfo = async () => {
     const { data } = await supabase.from('settings').select('id').limit(1);
     if (data && data.length > 0) {
@@ -461,7 +518,6 @@ export default function AdminDashboard() {
       }
   });
 
-  // TÍNH TOÁN THỐNG KÊ NGƯỜI CHƠI
   let usersBoughtAllTime = new Set();
   let usersBoughtToday = new Set();
 
@@ -532,10 +588,8 @@ export default function AdminDashboard() {
       });
   }
 
-  // Tiền xử lý dữ liệu cho Nâng cấp Popup LSGD
   let combinedTxs: any[] = [];
   if (selectedUserTxs) {
-      // 1. Add transactions (Nạp, Rút, Hoa hồng, Thu hồi)
       transactions.filter(t => t.user_id === selectedUserTxs.id).forEach(t => {
           combinedTxs.push({
               id: t.id,
@@ -546,7 +600,6 @@ export default function AdminDashboard() {
               desc: t.type === 'nap_tien' ? 'Nạp tiền / Cộng tiền' : t.type === 'rut_tien' ? 'Rút tiền' : t.type === 'hoa_hong' ? 'Nhận hoa hồng' : t.type === 'thu_hoi' ? 'Thu hồi / Trừ tiền' : 'Giao dịch khác'
           });
       });
-      // 2. Add packages (Mua gói)
       userPackages.filter(p => p.user_id === selectedUserTxs.id).forEach(p => {
           combinedTxs.push({
               id: p.id,
@@ -557,7 +610,6 @@ export default function AdminDashboard() {
               desc: `Mua gói: ${p.package_name}`
           });
       });
-      // Sort newest first
       combinedTxs.sort((a, b) => b.date.getTime() - a.date.getTime());
   }
 
@@ -605,6 +657,9 @@ export default function AdminDashboard() {
           <button onClick={() => setActiveTab('leaderboards')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${activeTab === 'leaderboards' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'hover:bg-slate-800'}`}>
             <Trophy className="w-5 h-5" /> Đua top
           </button>
+          <button onClick={() => setActiveTab('giftcodes')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${activeTab === 'giftcodes' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'hover:bg-slate-800'}`}>
+            <Ticket className="w-5 h-5" /> Quản lý Mã Code
+          </button>
           <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${activeTab === 'settings' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'hover:bg-slate-800'}`}>
             <SettingsIcon className="w-5 h-5" /> Cài đặt hệ thống
           </button>
@@ -629,6 +684,7 @@ export default function AdminDashboard() {
             {activeTab === 'withdrawals' && 'Lịch sử Rút tiền'}
             {activeTab === 'events' && 'Quản lý Sự kiện & Thông báo'}
             {activeTab === 'leaderboards' && 'Cấu hình Bảng Xếp Hạng'}
+            {activeTab === 'giftcodes' && 'Quản lý Mã Code (Giftcode)'}
             {activeTab === 'settings' && 'Cài đặt Hệ thống'}
             </h2>
             
@@ -647,12 +703,16 @@ export default function AdminDashboard() {
                     <Plus className="w-5 h-5" /> Thêm Người Đua Top
                 </button>
             )}
+            {activeTab === 'giftcodes' && (
+                <button onClick={openAddGiftcode} className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-sm transition-all">
+                    <Plus className="w-5 h-5" /> Tạo Mã Code
+                </button>
+            )}
         </div>
 
         {/* TAB: OVERVIEW */}
         {activeTab === 'overview' && (
             <>
-            {/* NÂNG CẤP: THỐNG KÊ NGƯỜI CHƠI TỔNG QUAN (WEB) */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mb-6">
                 <h3 className="font-bold text-lg text-slate-800 mb-4 flex items-center gap-2">
                     <Users className="w-5 h-5 text-blue-600" /> Tổng quan Người dùng
@@ -682,7 +742,6 @@ export default function AdminDashboard() {
                 </div>
             </div>
 
-            {/* BLOCK DÒNG TIỀN */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
                     <p className="text-sm font-bold text-slate-500 uppercase">Khách Nạp Hôm Nay</p>
@@ -702,13 +761,11 @@ export default function AdminDashboard() {
                 </div>
             </div>
 
-            {/* BLOCK THỐNG KÊ GÓI ĐẦU TƯ */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mt-6 mb-6">
                 <h3 className="font-bold text-lg text-slate-800 mb-4 flex items-center gap-2">
                     <Package className="w-5 h-5 text-blue-600" /> Thống kê Khách mua gói
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Nhóm Đã mua gói */}
                     <div className="border border-emerald-100 bg-emerald-50/30 rounded-xl p-5">
                         <p className="font-bold text-emerald-700 mb-3 text-center uppercase tracking-wide">Khách Đã Mua Gói</p>
                         <div className="flex justify-between items-center text-sm">
@@ -723,7 +780,6 @@ export default function AdminDashboard() {
                         </div>
                     </div>
 
-                    {/* Nhóm Chưa mua gói */}
                     <div className="border border-slate-200 bg-slate-50/50 rounded-xl p-5">
                         <p className="font-bold text-slate-700 mb-3 text-center uppercase tracking-wide">Khách Chưa Mua Gói</p>
                         <div className="flex justify-between items-center text-sm">
@@ -825,7 +881,6 @@ export default function AdminDashboard() {
                                       <button onClick={() => { openAddMoney(u); setOpenDropdownId(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-emerald-50 flex items-center gap-3 text-emerald-600 font-bold transition-colors">
                                           <DollarSign className="w-4 h-4"/> Cộng tiền vào TK
                                       </button>
-                                      {/* NÚT TRỪ TIỀN */}
                                       <button onClick={() => { openDeductMoney(u); setOpenDropdownId(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-rose-50 flex items-center gap-3 text-rose-600 font-bold transition-colors">
                                           <MinusCircle className="w-4 h-4"/> Thu hồi / Trừ tiền
                                       </button>
@@ -857,7 +912,7 @@ export default function AdminDashboard() {
                 {packages.map(p => (
                   <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
                     <td className="p-4 font-bold text-slate-800">{p.name}</td>
-                    <td className="p-4 font-bold text-emerald-500">{p.return_rate}</td>
+                    <td className="p-4 font-bold text-emerald-500">{p.return_rate} / ngày</td>
                     <td className="p-4 text-slate-600 font-medium">{p.limits}</td>
                     <td className="p-4">
                         {p.badge ? <span className="bg-[#1E6EFF] text-white text-xs px-2 py-1 rounded font-bold uppercase">{p.badge}</span> : <span className="text-slate-400 italic text-xs">Không có</span>}
@@ -868,6 +923,50 @@ export default function AdminDashboard() {
                             <Edit className="w-4 h-4" /> Sửa
                           </button>
                           <button onClick={() => handleDeletePackage(p.id)} className="inline-flex items-center gap-1 px-3 py-1.5 bg-rose-50 text-rose-600 rounded-lg hover:bg-rose-100 font-medium transition-colors">
+                            <Trash2 className="w-4 h-4" /> Xóa
+                          </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {/* TAB: GIFTCODES (MỚI BỔ SUNG) */}
+          {activeTab === 'giftcodes' && (
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm">
+                  <th className="p-4 font-semibold">Mã Code</th>
+                  <th className="p-4 font-semibold">Phần thưởng (VNĐ)</th>
+                  <th className="p-4 font-semibold">Lượt dùng</th>
+                  <th className="p-4 font-semibold">Trạng thái</th>
+                  <th className="p-4 font-semibold text-center">Hành động</th>
+                </tr>
+              </thead>
+              <tbody className="text-sm">
+                {giftcodes.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-slate-500">Chưa có mã Code nào được tạo.</td></tr>}
+                {giftcodes.map(gc => (
+                  <tr key={gc.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                    <td className="p-4 font-bold text-slate-800 tracking-wider font-mono">{gc.code}</td>
+                    <td className="p-4 font-bold text-emerald-600">+{gc.reward_amount.toLocaleString('vi-VN')} ₫</td>
+                    <td className="p-4 text-slate-600 font-medium">
+                        <span className={gc.used_count >= gc.usage_limit ? 'text-rose-500 font-bold' : 'text-blue-600 font-bold'}>
+                            {gc.used_count}
+                        </span> / {gc.usage_limit}
+                    </td>
+                    <td className="p-4">
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${gc.status === 'active' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-200 text-slate-500'}`}>
+                            {gc.status === 'active' ? 'Đang hoạt động' : 'Đã Khóa'}
+                        </span>
+                    </td>
+                    <td className="p-4 text-center">
+                      <div className="flex justify-center gap-2">
+                          <button onClick={() => openEditGiftcode(gc)} className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 font-medium transition-colors">
+                            <Edit className="w-4 h-4" /> Sửa
+                          </button>
+                          <button onClick={() => handleDeleteGiftcode(gc.id)} className="inline-flex items-center gap-1 px-3 py-1.5 bg-rose-50 text-rose-600 rounded-lg hover:bg-rose-100 font-medium transition-colors">
                             <Trash2 className="w-4 h-4" /> Xóa
                           </button>
                       </div>
@@ -1177,6 +1276,38 @@ export default function AdminDashboard() {
         </div>
       )}
 
+      {/* MODAL MÃ CODE (MỚI) */}
+      {isGiftcodeModalOpen && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl relative">
+                <button onClick={() => setIsGiftcodeModalOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"><X className="w-6 h-6" /></button>
+                <h3 className="font-bold text-xl text-slate-900 mb-6">{editingGiftcode ? 'Chỉnh sửa Mã Code' : 'Thêm Mã Code Mới'}</h3>
+                <div className="space-y-4 mb-8">
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Mã Code (Tự viết hoa)</label>
+                        <input type="text" placeholder="VD: VIP2026" value={gcForm.code} onChange={e => setGcForm({...gcForm, code: e.target.value.toUpperCase()})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono font-bold tracking-widest" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Giá trị thưởng (VNĐ)</label>
+                        <input type="number" placeholder="VD: 50000" value={gcForm.reward_amount} onChange={e => setGcForm({...gcForm, reward_amount: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Số lượt dùng tối đa</label>
+                        <input type="number" placeholder="VD: 100" value={gcForm.usage_limit} onChange={e => setGcForm({...gcForm, usage_limit: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Trạng thái</label>
+                        <select value={gcForm.status} onChange={e => setGcForm({...gcForm, status: e.target.value})} className="w-full border border-slate-200 bg-slate-50 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium">
+                            <option value="active">Đang hoạt động</option>
+                            <option value="locked">Đã Khóa</option>
+                        </select>
+                    </div>
+                </div>
+                <button onClick={saveGiftcodeInfo} className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition-all">{editingGiftcode ? 'Lưu Thay Đổi' : 'Tạo Mã Code'}</button>
+            </div>
+        </div>
+      )}
+
       {isEventModalOpen && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl relative max-h-[90vh] overflow-y-auto">
@@ -1261,9 +1392,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* ========================================================= */}
-      {/* 1. NÂNG CẤP: Modal Xem LSGD (Bổ sung bộ lọc) */}
-      {/* ========================================================= */}
+      {/* 1. Modal Xem LSGD */}
       {isTxsModalOpen && selectedUserTxs && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white p-6 rounded-2xl w-full max-w-3xl shadow-2xl relative max-h-[90vh] overflow-hidden flex flex-col">
@@ -1296,7 +1425,6 @@ export default function AdminDashboard() {
                                 <tr><td colSpan={4} className="p-8 text-center text-slate-500 font-medium bg-white">Không có giao dịch nào phù hợp.</td></tr>
                             ) : (
                                 filteredTxs.map((t, idx) => {
-                                    // Phân loại màu sắc tiền
                                     let amountColor = 'text-slate-600';
                                     let amountPrefix = '';
                                     if (t.type === 'nap_tien' || t.type === 'hoa_hong') { amountColor = 'text-emerald-600'; amountPrefix = '+'; }
@@ -1416,7 +1544,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* 4. Modal Trừ tiền (MỚI BỔ SUNG) */}
+      {/* 4. Modal Trừ tiền */}
       {isDeductMoneyModalOpen && deductMoneyUser && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl relative border-t-4 border-rose-500">
@@ -1451,6 +1579,6 @@ export default function AdminDashboard() {
         </div>
       )}
 
-    </div> 
+    </div>
   );
 }
