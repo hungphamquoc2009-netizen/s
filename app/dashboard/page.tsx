@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { 
   Bell, Search, User, ArrowDownToLine, ArrowUpFromLine, 
   TrendingUp, Sparkles, CheckCircle2, Info, AlertTriangle, 
   ChevronRight, Activity, LogOut, X, QrCode, Menu, 
-  Home, Users, Calendar, Trophy, HeadphonesIcon, Copy, Link as LinkIcon, Package, Gift, Wallet, Clock, Shield, History
+  Home, Users, Calendar, Trophy, HeadphonesIcon, Copy, Link as LinkIcon, Package, Gift, Wallet, Clock, Shield, History,
+  CalendarCheck, Dices, PartyPopper
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
@@ -19,6 +20,16 @@ const chartData = [
   { name: 'Apr', actual: 142, expected: 152 },
   { name: 'May', actual: 157, expected: 160 },
   { name: 'Jun', actual: 175, expected: 168 },
+];
+
+// Cấu hình Vòng quay may mắn (Có thể thay đổi tỉ lệ trúng ở weight)
+const WHEEL_PRIZES = [
+  { id: 1, label: '1.000đ', value: 1000, weight: 45, color: '#f8fafc' },
+  { id: 2, label: '2.000đ', value: 2000, weight: 30, color: '#e2e8f0' },
+  { id: 3, label: '5.000đ', value: 5000, weight: 15, color: '#bae6fd' },
+  { id: 4, label: '10.000đ', value: 10000, weight: 7, color: '#7dd3fc' },
+  { id: 5, label: '50.000đ', value: 50000, weight: 2, color: '#38bdf8' },
+  { id: 6, label: '+1 Lượt', value: -1, weight: 1, color: '#fde047' }, // -1 tương đương phần thưởng thêm lượt
 ];
 
 export default function FintechDashboard() {
@@ -59,6 +70,17 @@ export default function FintechDashboard() {
   const [passMessage, setPassMessage] = useState<{text: string, type: 'success' | 'error'} | null>(null);
   const [isUpdatingPass, setIsUpdatingPass] = useState(false);
 
+  // === STATE CHO TÍNH NĂNG MỚI: ĐIỂM DANH & VÒNG QUAY ===
+  const [checkInStreak, setCheckInStreak] = useState<number>(0);
+  const [lastCheckInDate, setLastCheckInDate] = useState<string | null>(null);
+  
+  const [spinCount, setSpinCount] = useState<number>(0);
+  const [unconvertedDeposit, setUnconvertedDeposit] = useState<number>(0);
+  const [isSpinning, setIsSpinning] = useState<boolean>(false);
+  const [wheelRotation, setWheelRotation] = useState<number>(0);
+  const [showConfetti, setShowConfetti] = useState<boolean>(false);
+  const [prizeMsg, setPrizeMsg] = useState<string | null>(null);
+
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
@@ -88,7 +110,7 @@ export default function FintechDashboard() {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('balance, bank_account, bank_name, account_name, has_purchased_package, created_at')
+      .select('balance, bank_account, bank_name, account_name, has_purchased_package, created_at, check_in_streak, last_check_in, spin_count, unconverted_deposit')
       .eq('id', session.user.id)
       .single();
       
@@ -99,6 +121,12 @@ export default function FintechDashboard() {
         setAccountName(profile.account_name); 
         setHasPurchasedPackage(profile.has_purchased_package || false);
         if (!session.user.created_at && profile.created_at) setJoinDate(new Date(profile.created_at).toLocaleDateString('vi-VN'));
+        
+        // Load data mới
+        setCheckInStreak(profile.check_in_streak || 0);
+        setLastCheckInDate(profile.last_check_in || null);
+        setSpinCount(profile.spin_count || 0);
+        setUnconvertedDeposit(profile.unconverted_deposit || 0);
     }
 
     const { data: myPkgs } = await supabase
@@ -122,7 +150,6 @@ export default function FintechDashboard() {
     const { data: eventsData } = await supabase.from('events').select('*').order('created_at', { ascending: false });
     if (eventsData) setEvents(eventsData);
 
-    // XỬ LÝ LẠI BXH: Đọc trực tiếp từ bảng leaderboards do Admin quản lý thay vì tự đếm
     try {
       const { data: lbData, error } = await supabase
         .from('leaderboards')
@@ -164,6 +191,144 @@ export default function FintechDashboard() {
   };
 
   useEffect(() => { loadData(); }, []);
+
+  // === LOGIC TÍNH NĂNG ĐIỂM DANH ===
+  const todayStr = new Date().toLocaleDateString('en-CA'); 
+  const isCheckedInToday = lastCheckInDate === todayStr;
+
+  const handleCheckIn = async () => {
+      if (isCheckedInToday) return;
+
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toLocaleDateString('en-CA');
+
+      let newStreak = checkInStreak;
+      // Reset chuỗi nếu hôm qua không điểm danh
+      if (lastCheckInDate !== yesterdayStr) {
+          newStreak = 1;
+      } else {
+          newStreak += 1;
+      }
+
+      let rewardMessage = "";
+      let addedBalance = 0;
+      let addedSpin = 0;
+
+      // Xử lý phần thưởng
+      if (newStreak === 7) {
+          addedSpin = 1;
+          rewardMessage = "Điểm danh ngày 7 thành công! Bạn nhận được 1 Lượt quay may mắn.";
+          newStreak = 0; // Reset lại sau khi nhận mốc 7
+      } else {
+          addedBalance = 1000; // Thưởng 1,000đ mỗi ngày
+          rewardMessage = `Điểm danh ngày ${newStreak} thành công! Nhận 1.000 VNĐ.`;
+      }
+
+      try {
+          const updates: any = {
+              check_in_streak: newStreak,
+              last_check_in: todayStr,
+          };
+          if (addedBalance > 0) updates.balance = balance + addedBalance;
+          if (addedSpin > 0) updates.spin_count = spinCount + addedSpin;
+
+          await supabase.from('profiles').update(updates).eq('id', userId);
+
+          if (addedBalance > 0) {
+              await supabase.from('transactions').insert({
+                  user_id: userId,
+                  type: 'hoa_hong', // Sử dụng type hoa_hong tạm cho phần thưởng điểm danh
+                  amount: addedBalance,
+                  status: 'success',
+                  bank_name: 'HỆ THỐNG',
+                  account_name: 'Thưởng điểm danh hàng ngày'
+              });
+          }
+
+          alert(rewardMessage);
+          loadData();
+      } catch (err) {
+          alert("Lỗi hệ thống khi điểm danh!");
+      }
+  };
+
+  // === LOGIC TÍNH NĂNG VÒNG QUAY MAY MẮN ===
+  const handleSpinWheel = async () => {
+      if (spinCount <= 0) {
+          alert("Bạn đã hết lượt quay! Hãy nạp thêm 60,000đ để nhận 1 lượt quay.");
+          return;
+      }
+      if (isSpinning) return;
+
+      setIsSpinning(true);
+      setShowConfetti(false);
+      setPrizeMsg(null);
+
+      // Thuật toán Weight RNG
+      const totalWeight = WHEEL_PRIZES.reduce((sum, item) => sum + item.weight, 0);
+      let randomNum = Math.random() * totalWeight;
+      let selectedPrize = WHEEL_PRIZES[0];
+
+      for (const prize of WHEEL_PRIZES) {
+          if (randomNum < prize.weight) {
+              selectedPrize = prize;
+              break;
+          }
+          randomNum -= prize.weight;
+      }
+
+      // Tính góc quay (360 độ / 6 ô = 60 độ mỗi ô)
+      // Để kim chỉ đúng ô, ta cần tính góc mục tiêu. Giả sử ô số 1 ở đỉnh (0 độ).
+      const sliceAngle = 360 / WHEEL_PRIZES.length;
+      const targetIndex = WHEEL_PRIZES.findIndex(p => p.id === selectedPrize.id);
+      
+      // Xoay thêm 5 vòng (1800 độ) + góc của ô trúng thưởng + một chút ngẫu nhiên trong phạm vi ô đó
+      const randomOffset = Math.floor(Math.random() * (sliceAngle - 10)) - ((sliceAngle - 10) / 2);
+      const targetDegree = 1800 + (360 - (targetIndex * sliceAngle)) + randomOffset;
+
+      setWheelRotation(prev => prev + targetDegree);
+
+      // Chờ animation hoàn thành (khoảng 4 giây)
+      setTimeout(async () => {
+          setIsSpinning(false);
+          setShowConfetti(true);
+          
+          let newBalance = balance;
+          let newSpinCount = spinCount - 1; // Trừ 1 lượt quay vừa dùng
+
+          if (selectedPrize.value === -1) {
+              // Trúng thêm lượt quay
+              newSpinCount += 1;
+              setPrizeMsg("Tuyệt vời! Bạn quay trúng THÊM 1 LƯỢT QUAY.");
+          } else {
+              // Trúng tiền
+              newBalance += selectedPrize.value;
+              setPrizeMsg(`Chúc mừng! Bạn quay trúng ${selectedPrize.value.toLocaleString('vi-VN')} VNĐ.`);
+          }
+
+          try {
+              const updates: any = { spin_count: newSpinCount };
+              if (selectedPrize.value !== -1) updates.balance = newBalance;
+
+              await supabase.from('profiles').update(updates).eq('id', userId);
+
+              if (selectedPrize.value !== -1) {
+                  await supabase.from('transactions').insert({
+                      user_id: userId,
+                      type: 'trung_thuong',
+                      amount: selectedPrize.value,
+                      status: 'success',
+                      bank_name: 'VÒNG QUAY MAY MẮN',
+                      account_name: 'Trúng thưởng trực tiếp'
+                  });
+              }
+              loadData();
+          } catch (err) {
+              console.error(err);
+          }
+      }, 4000);
+  };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -280,8 +445,17 @@ export default function FintechDashboard() {
   ];
 
   return (
-    <div className="flex h-screen bg-[#F5F7FB] font-sans text-slate-800 overflow-hidden">
+    <div className="flex h-screen bg-[#F5F7FB] font-sans text-slate-800 overflow-hidden relative">
       
+      {/* Hiệu ứng Confetti đơn giản bằng CSS khi trúng thưởng */}
+      {showConfetti && (
+          <div className="fixed inset-0 pointer-events-none z-[200] flex items-center justify-center overflow-hidden">
+              <div className="absolute text-5xl animate-bounce text-emerald-500 font-bold bg-white px-8 py-4 rounded-3xl shadow-2xl border-4 border-emerald-100 flex items-center gap-3">
+                  <PartyPopper className="w-12 h-12" /> {prizeMsg}
+              </div>
+          </div>
+      )}
+
       {isWithdrawOpen && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl relative animate-in fade-in zoom-in duration-200">
@@ -371,6 +545,117 @@ export default function FintechDashboard() {
                     </div>
                   </div>
 
+                  {/* ================= TÍNH NĂNG MỚI: ĐIỂM DANH & VÒNG QUAY ================= */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      
+                      {/* KHỐI ĐIỂM DANH */}
+                      <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 flex flex-col justify-between relative overflow-hidden">
+                          <div className="absolute top-0 right-0 p-4 opacity-10">
+                              <CalendarCheck className="w-24 h-24 text-[#1E6EFF]" />
+                          </div>
+                          <div>
+                              <h3 className="font-bold text-lg text-slate-800 mb-1 flex items-center gap-2 relative z-10">
+                                  <CalendarCheck className="w-5 h-5 text-[#1E6EFF]" /> Điểm danh hằng ngày
+                              </h3>
+                              <p className="text-sm text-slate-500 mb-6 relative z-10">Tích lũy 7 ngày liên tiếp để nhận 1 lượt quay Vòng Quay May Mắn.</p>
+                              
+                              <div className="flex justify-between items-center mb-6 relative z-10">
+                                  {[1, 2, 3, 4, 5, 6, 7].map((day) => {
+                                      const isPassed = day <= checkInStreak;
+                                      const isCurrentTarget = day === checkInStreak + 1;
+                                      return (
+                                          <div key={day} className="flex flex-col items-center gap-2 relative">
+                                              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold z-10 transition-colors ${
+                                                  isPassed ? 'bg-emerald-500 text-white' : 
+                                                  isCurrentTarget ? 'bg-[#1E6EFF] text-white ring-4 ring-blue-100' : 'bg-slate-100 text-slate-400'
+                                              }`}>
+                                                  {isPassed ? <CheckCircle2 className="w-4 h-4" /> : day}
+                                              </div>
+                                              <span className="text-[10px] font-medium text-slate-500 uppercase">Ngày {day}</span>
+                                              {/* Đường nối */}
+                                              {day < 7 && <div className={`absolute top-4 left-4 w-full h-1 -z-0 ${day < checkInStreak ? 'bg-emerald-500' : 'bg-slate-100'}`} style={{ width: 'calc(100% + 20px)' }}></div>}
+                                          </div>
+                                      );
+                                  })}
+                              </div>
+                          </div>
+                          
+                          <button 
+                              onClick={handleCheckIn}
+                              disabled={isCheckedInToday}
+                              className={`w-full py-3.5 rounded-xl font-bold flex justify-center items-center gap-2 transition-all relative z-10 ${
+                                  isCheckedInToday 
+                                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
+                                  : 'bg-gradient-to-r from-blue-600 to-[#1E6EFF] text-white shadow-lg shadow-blue-500/30 hover:-translate-y-1'
+                              }`}
+                          >
+                              {isCheckedInToday ? 'Đã điểm danh hôm nay' : 'Điểm danh ngay'}
+                          </button>
+                      </div>
+
+                      {/* KHỐI VÒNG QUAY MAY MẮN */}
+                      <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 flex flex-col items-center relative">
+                          <h3 className="font-bold text-lg text-slate-800 mb-1 flex items-center gap-2 w-full">
+                              <Dices className="w-5 h-5 text-amber-500" /> Vòng quay may mắn
+                          </h3>
+                          <div className="w-full flex justify-between items-center text-sm mb-4 bg-amber-50 p-3 rounded-xl border border-amber-100">
+                              <span className="text-amber-800 font-medium">Lượt quay hiện có:</span>
+                              <span className="text-xl font-black text-amber-600">{spinCount}</span>
+                          </div>
+
+                          {/* Báo hiệu tiến trình cộng dồn */}
+                          <div className="w-full mb-6">
+                              <div className="flex justify-between text-xs text-slate-500 font-medium mb-1.5">
+                                  <span>Tích lũy nạp: {unconvertedDeposit.toLocaleString()}đ</span>
+                                  <span>Mục tiêu: 60.000đ</span>
+                              </div>
+                              <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                                  <div className="bg-gradient-to-r from-amber-400 to-orange-500 h-full rounded-full transition-all" style={{ width: `${Math.min((unconvertedDeposit / 60000) * 100, 100)}%` }}></div>
+                              </div>
+                              <p className="text-[10px] text-slate-400 text-center mt-2 italic">* Cứ mỗi 60k nạp vào hệ thống sẽ được quy đổi thành 1 lượt quay.</p>
+                          </div>
+
+                          {/* UI Vòng quay (Sử dụng CSS Conic Gradient) */}
+                          <div className="relative w-48 h-48 mb-4">
+                              <div 
+                                  className="absolute inset-0 rounded-full border-4 border-slate-800 shadow-xl overflow-hidden"
+                                  style={{
+                                      background: `conic-gradient(
+                                          ${WHEEL_PRIZES[0].color} 0deg 60deg,
+                                          ${WHEEL_PRIZES[1].color} 60deg 120deg,
+                                          ${WHEEL_PRIZES[2].color} 120deg 180deg,
+                                          ${WHEEL_PRIZES[3].color} 180deg 240deg,
+                                          ${WHEEL_PRIZES[4].color} 240deg 300deg,
+                                          ${WHEEL_PRIZES[5].color} 300deg 360deg
+                                      )`,
+                                      transform: `rotate(${wheelRotation}deg)`,
+                                      transition: 'transform 4s cubic-bezier(0.1, 0.7, 0.1, 1)'
+                                  }}
+                              >
+                                  {/* Labels (Vẽ cứng tĩnh để dễ quản lý, vì conic là cố định 60 độ mỗi ô) */}
+                                  <div className="absolute top-4 left-1/2 -translate-x-1/2 font-bold text-[10px] text-slate-700 origin-bottom" style={{ height: '80px', transform: 'rotate(30deg)' }}>1k</div>
+                                  <div className="absolute top-4 left-1/2 -translate-x-1/2 font-bold text-[10px] text-slate-700 origin-bottom" style={{ height: '80px', transform: 'rotate(90deg)' }}>2k</div>
+                                  <div className="absolute top-4 left-1/2 -translate-x-1/2 font-bold text-[10px] text-slate-700 origin-bottom" style={{ height: '80px', transform: 'rotate(150deg)' }}>5k</div>
+                                  <div className="absolute top-4 left-1/2 -translate-x-1/2 font-bold text-[10px] text-slate-700 origin-bottom" style={{ height: '80px', transform: 'rotate(210deg)' }}>10k</div>
+                                  <div className="absolute top-4 left-1/2 -translate-x-1/2 font-bold text-[10px] text-slate-700 origin-bottom" style={{ height: '80px', transform: 'rotate(270deg)' }}>50k</div>
+                                  <div className="absolute top-4 left-1/2 -translate-x-1/2 font-bold text-[10px] text-slate-700 origin-bottom" style={{ height: '80px', transform: 'rotate(330deg)' }}>+1 Lượt</div>
+                              </div>
+                              {/* Kim chỉ */}
+                              <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[12px] border-r-[12px] border-t-[20px] border-l-transparent border-r-transparent border-t-rose-500 z-10 drop-shadow-md"></div>
+                              {/* Tâm vòng quay */}
+                              <button 
+                                  onClick={handleSpinWheel}
+                                  disabled={isSpinning || spinCount <= 0}
+                                  className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-12 h-12 bg-slate-900 text-white rounded-full font-black text-xs border-2 border-white shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed z-20"
+                              >
+                                  QUAY
+                              </button>
+                          </div>
+                      </div>
+
+                  </div>
+                  {/* ================= HẾT PHẦN TÍNH NĂNG MỚI ================= */}
+
                   <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
                     <h3 className="font-bold text-lg text-slate-800 mb-6">Balance Growth</h3>
                     <div className="h-[300px] w-full">
@@ -401,23 +686,23 @@ export default function FintechDashboard() {
                           txHistory.slice(0, 5).map((tx) => (
                           <div key={tx.id} className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                              <div className={`p-2.5 rounded-xl ${tx.type === 'nap_tien' ? 'text-blue-500 bg-blue-50' : tx.type === 'hoa_hong' || tx.type === 'nhan_lai' ? 'text-emerald-500 bg-emerald-50' : 'text-rose-500 bg-rose-50'}`}>
+                              <div className={`p-2.5 rounded-xl ${tx.type === 'nap_tien' ? 'text-blue-500 bg-blue-50' : tx.type === 'hoa_hong' || tx.type === 'nhan_lai' || tx.type === 'trung_thuong' ? 'text-emerald-500 bg-emerald-50' : 'text-rose-500 bg-rose-50'}`}>
                                 {tx.type === 'nap_tien' && <ArrowDownToLine className="w-5 h-5" />}
-                                {tx.type === 'hoa_hong' && <Gift className="w-5 h-5" />}
+                                {(tx.type === 'hoa_hong' || tx.type === 'trung_thuong') && <Gift className="w-5 h-5" />}
                                 {tx.type === 'nhan_lai' && <TrendingUp className="w-5 h-5" />}
                                 {tx.type === 'rut_tien' && <ArrowUpFromLine className="w-5 h-5" />}
                               </div>
                               <div>
                                 <p className="text-sm font-bold text-slate-800">
-                                    {tx.type === 'nap_tien' ? 'Nạp tiền' : tx.type === 'hoa_hong' ? 'Hoa hồng giới thiệu' : tx.type === 'nhan_lai' ? 'Nhận lãi đầu tư' : 'Rút tiền'}
+                                    {tx.type === 'nap_tien' ? 'Nạp tiền' : tx.type === 'trung_thuong' ? 'Trúng thưởng vòng quay' : tx.type === 'hoa_hong' ? 'Thưởng/Hoa hồng' : tx.type === 'nhan_lai' ? 'Nhận lãi đầu tư' : 'Rút tiền'}
                                 </p>
                                 <p className="text-xs text-slate-400 mt-0.5">
                                     {new Date(tx.created_at).toLocaleDateString('vi-VN')} - <span className={`font-semibold ${tx.status === 'pending' ? 'text-amber-500' : 'text-emerald-500'}`}>{tx.status === 'pending' ? 'Đang xử lý' : 'Thành công'}</span>
                                 </p>
                               </div>
                             </div>
-                            <span className={`text-sm font-bold ${tx.type === 'nap_tien' ? 'text-blue-500' : tx.type === 'hoa_hong' || tx.type === 'nhan_lai' ? 'text-emerald-500' : 'text-slate-800'}`}>
-                              {tx.type === 'nap_tien' || tx.type === 'hoa_hong' || tx.type === 'nhan_lai' ? '+' : '-'}{tx.amount.toLocaleString('vi-VN')}
+                            <span className={`text-sm font-bold ${tx.type === 'nap_tien' ? 'text-blue-500' : tx.type === 'hoa_hong' || tx.type === 'nhan_lai' || tx.type === 'trung_thuong' ? 'text-emerald-500' : 'text-slate-800'}`}>
+                              {tx.type === 'nap_tien' || tx.type === 'hoa_hong' || tx.type === 'nhan_lai' || tx.type === 'trung_thuong' ? '+' : '-'}{tx.amount.toLocaleString('vi-VN')}
                             </span>
                           </div>
                         ))
@@ -456,18 +741,18 @@ export default function FintechDashboard() {
                               <td className="p-4 text-slate-500 font-medium">{new Date(tx.created_at).toLocaleString('vi-VN')}</td>
                               <td className="p-4 font-medium text-slate-800">
                                 <div className="flex items-center gap-3">
-                                  <div className={`p-2 rounded-lg ${tx.type === 'nap_tien' ? 'text-blue-500 bg-blue-50' : tx.type === 'hoa_hong' || tx.type === 'nhan_lai' ? 'text-emerald-500 bg-emerald-50' : 'text-rose-500 bg-rose-50'}`}>
+                                  <div className={`p-2 rounded-lg ${tx.type === 'nap_tien' ? 'text-blue-500 bg-blue-50' : tx.type === 'hoa_hong' || tx.type === 'nhan_lai' || tx.type === 'trung_thuong' ? 'text-emerald-500 bg-emerald-50' : 'text-rose-500 bg-rose-50'}`}>
                                     {tx.type === 'nap_tien' && <ArrowDownToLine className="w-4 h-4" />}
-                                    {tx.type === 'hoa_hong' && <Gift className="w-4 h-4" />}
+                                    {(tx.type === 'hoa_hong' || tx.type === 'trung_thuong') && <Gift className="w-4 h-4" />}
                                     {tx.type === 'nhan_lai' && <TrendingUp className="w-4 h-4" />}
                                     {tx.type === 'rut_tien' && <ArrowUpFromLine className="w-4 h-4" />}
                                   </div>
-                                  {tx.type === 'nap_tien' ? 'Nạp tiền' : tx.type === 'hoa_hong' ? 'Hoa hồng' : tx.type === 'nhan_lai' ? 'Nhận lãi' : 'Rút tiền'}
+                                  {tx.type === 'nap_tien' ? 'Nạp tiền' : tx.type === 'trung_thuong' ? 'Trúng thưởng' : tx.type === 'hoa_hong' ? 'Thưởng/Hoa hồng' : tx.type === 'nhan_lai' ? 'Nhận lãi' : 'Rút tiền'}
                                 </div>
                               </td>
                               <td className="p-4 text-slate-500 max-w-[200px] truncate" title={tx.bank_name}>{tx.bank_name || '-'}</td>
-                              <td className={`p-4 text-right font-bold text-base ${tx.type === 'nap_tien' ? 'text-blue-500' : tx.type === 'hoa_hong' || tx.type === 'nhan_lai' ? 'text-emerald-500' : 'text-slate-800'}`}>
-                                {tx.type === 'nap_tien' || tx.type === 'hoa_hong' || tx.type === 'nhan_lai' ? '+' : '-'}{tx.amount.toLocaleString('vi-VN')}
+                              <td className={`p-4 text-right font-bold text-base ${tx.type === 'nap_tien' ? 'text-blue-500' : tx.type === 'hoa_hong' || tx.type === 'nhan_lai' || tx.type === 'trung_thuong' ? 'text-emerald-500' : 'text-slate-800'}`}>
+                                {tx.type === 'nap_tien' || tx.type === 'hoa_hong' || tx.type === 'nhan_lai' || tx.type === 'trung_thuong' ? '+' : '-'}{tx.amount.toLocaleString('vi-VN')}
                               </td>
                               <td className="p-4 text-center">
                                 <span className={`px-3 py-1 rounded-full text-xs font-bold ${tx.status === 'success' ? 'bg-emerald-100 text-emerald-700' : tx.status === 'rejected' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>
