@@ -83,7 +83,7 @@ export default function FintechDashboard() {
   const [giftcodeMessage, setGiftcodeMessage] = useState<{text: string, type: 'success' | 'error'} | null>(null);
   const [giftcodeHistory, setGiftcodeHistory] = useState<any[]>([]);
 
-  // TẠO MÃ GIỚI THIỆU NGẮN (6 Ký tự đầu của ID)
+  // TẠO MÃ GIỚI THIỆU NGẮN (6 Ký tự đầu của ID) cũng chính là ID hiển thị
   const shortRefCode = userId ? userId.substring(0, 6).toUpperCase() : '';
 
   useEffect(() => {
@@ -453,7 +453,6 @@ export default function FintechDashboard() {
       window.location.href = `/thanh-toan?package=${encodeURIComponent(packageName)}&returnUrl=/`;
   };
 
-  // SỬA LẠI ĐƯỜNG LINK TRỎ THẲNG ĐẾN TRANG /register 
   const copyReferralLink = () => {
     navigator.clipboard.writeText(`https://finvest.fun/register?ref=${shortRefCode}`);
     setIsCopied(true); 
@@ -1054,13 +1053,18 @@ export default function FintechDashboard() {
                                 {referralList.length === 0 ? (
                                     <tr><td colSpan={3} className="p-6 text-center text-slate-500">Chưa có thành viên nào đăng ký qua link của bạn.</td></tr>
                                 ) : (
-                                    referralList.map((user) => (
+                                    referralList.map((user) => {
+                                        const shortUserId = user.id ? user.id.substring(0, 6).toUpperCase() : 'UNKNOWN';
+                                        return (
                                         <tr key={user.id} className="border-b border-slate-50 hover:bg-slate-50/50">
-                                            <td className="p-4 font-medium text-slate-800">{maskEmail(user.email || user.id)}</td>
+                                            <td className="p-4 font-medium text-slate-800">
+                                                ID: <span className="text-[#1E6EFF] font-bold">{shortUserId}</span>
+                                                <span className="block text-xs text-slate-400 font-normal">{maskEmail(user.email)}</span>
+                                            </td>
                                             <td className="p-4 text-center"><span className={`px-3 py-1 rounded-full font-bold text-xs ${user.level === 'F1' ? 'bg-blue-100 text-blue-700' : user.level === 'F2' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{user.level}</span></td>
                                             <td className="p-4 text-slate-500">{user.created_at ? new Date(user.created_at).toLocaleDateString('vi-VN') : 'Không rõ'}</td>
                                         </tr>
-                                    ))
+                                    )})
                                 )}
                             </tbody>
                         </table>
@@ -1156,6 +1160,10 @@ export default function FintechDashboard() {
                 <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-100">
                    <h3 className="text-xl font-bold text-slate-900 mb-6 border-b border-slate-100 pb-4">Thông tin tài khoản</h3>
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                     <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                       <label className="text-sm text-blue-500 font-medium block mb-1">ID Tài khoản</label>
+                       <p className="text-xl font-black text-[#1E6EFF] tracking-widest">{shortRefCode}</p>
+                     </div>
                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
                        <label className="text-sm text-slate-500 font-medium block mb-1">Tên hiển thị</label>
                        <p className="text-lg font-bold text-slate-800">{userName}</p>
@@ -1195,7 +1203,7 @@ export default function FintechDashboard() {
                      </button>
                    </form>
                 </div>
-              </div> 
+              </div>
             )}
 
           </div>

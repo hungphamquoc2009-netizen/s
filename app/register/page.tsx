@@ -40,6 +40,21 @@ function RegisterFormContent() {
 
       if (authError) throw authError;
 
+      // --- PHẦN BỔ SUNG: TÌM UUID GỐC TỪ MÃ GIỚI THIỆU NGẮN ---
+      let fullReferrerId = null;
+      if (referralCode && referralCode.length >= 6) {
+          const { data: referrerData, error: refError } = await supabase
+              .from('profiles')
+              .select('id')
+              .ilike('id', `${referralCode}%`)
+              .maybeSingle();
+
+          if (referrerData && !refError) {
+              fullReferrerId = referrerData.id;
+          }
+      }
+      // --------------------------------------------------------
+
       // 2. LƯU PROFILE BẰNG UPSERT (TRÁNH LỖI TRÙNG ID) VÀ TẶNG 30K
       if (authData.user) {
         const { error: profileError } = await supabase.from('profiles').upsert([
@@ -47,7 +62,7 @@ function RegisterFormContent() {
             id: authData.user.id, 
             balance: 30000, // Tặng tiền tân thủ
             has_purchased_package: false,
-            referred_by: referralCode ? referralCode : null // Lưu mã giới thiệu vào DB
+            referred_by: fullReferrerId // Lưu UUID chuẩn vào DB thay vì mã ngắn
           }
         ]);
         
