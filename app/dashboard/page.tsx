@@ -62,7 +62,6 @@ export default function FintechDashboard() {
   const [referralList, setReferralList] = useState<any[]>([]); 
 
   const [myPackages, setMyPackages] = useState<any[]>([]);
-  // STATE MỚI: THEO DÕI GÓI PENDING ĐỂ QUÉT NGẦM
   const [pendingPackages, setPendingPackages] = useState<any[]>([]);
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -85,7 +84,6 @@ export default function FintechDashboard() {
   const [giftcodeMessage, setGiftcodeMessage] = useState<{text: string, type: 'success' | 'error'} | null>(null);
   const [giftcodeHistory, setGiftcodeHistory] = useState<any[]>([]);
 
-  // TẠO MÃ GIỚI THIỆU NGẮN (6 Ký tự đầu của ID) cũng chính là ID hiển thị
   const shortRefCode = userId ? userId.substring(0, 6).toUpperCase() : '';
 
   useEffect(() => {
@@ -134,7 +132,6 @@ export default function FintechDashboard() {
         setSpinCount(profile.spin_count || 0);
     }
 
-    // Lấy gói đang chạy
     const { data: myPkgs } = await supabase
       .from('user_packages')
       .select('*')
@@ -143,7 +140,6 @@ export default function FintechDashboard() {
       .order('purchased_at', { ascending: false });
     if (myPkgs) setMyPackages(myPkgs);
 
-    // LẤY CÁC GÓI PENDING ĐỂ QUÉT NGẦM
     const { data: pPkgs } = await supabase
       .from('user_packages')
       .select('*')
@@ -159,8 +155,22 @@ export default function FintechDashboard() {
       .limit(100);
     if (txs) setTxHistory(txs);
 
-    const { data: pkgs } = await supabase.from('packages').select('*').order('created_at', { ascending: true });
-    if (pkgs) setPackages(pkgs);
+    // FIX 1: Lấy và sắp xếp gói đầu tư từ bé đến lớn
+    const { data: pkgs, error: pkgsErr } = await supabase.from('packages').select('*').order('price', { ascending: true });
+    if (pkgsErr) {
+        // Phương án dự phòng nếu cột price không tồn tại, tự động sort bằng cách bóc tách số từ text
+        const { data: fallbackPkgs } = await supabase.from('packages').select('*');
+        if (fallbackPkgs) {
+            const sorted = fallbackPkgs.sort((a, b) => {
+                const priceA = parseInt(String(a.limits || a.name || '').replace(/\D/g, '')) || 0;
+                const priceB = parseInt(String(b.limits || b.name || '').replace(/\D/g, '')) || 0;
+                return priceA - priceB;
+            });
+            setPackages(sorted);
+        }
+    } else if (pkgs) {
+        setPackages(pkgs);
+    }
 
     const { data: eventsData } = await supabase.from('events').select('*').order('created_at', { ascending: false });
     if (eventsData) setEvents(eventsData);
@@ -211,10 +221,11 @@ export default function FintechDashboard() {
     if (pendingPackages.length === 0 || !userId || !userEmail) return;
 
     let isChecking = false;
+    let activeInterval = true;
     const API_BANK = "https://thueapibank.vn/historyapivpbankneov2/d33a5cde4962560a0138920f20d550df";
 
     const intervalId = setInterval(async () => {
-        if (isChecking) return;
+        if (isChecking || !activeInterval) return;
         isChecking = true;
 
         try {
@@ -227,7 +238,8 @@ export default function FintechDashboard() {
             else if (bankData.transactions && Array.isArray(bankData.transactions)) transactionsArray = bankData.transactions;
             else if (bankData.records && Array.isArray(bankData.records)) transactionsArray = bankData.records;
 
-            let activatedAny = false;
+            // FIX 2: Lưu các ID đã xử lý thành công để gỡ khỏi pendingPackages
+            const newlyProcessedIds: string[] = [];
 
             for (const pkg of pendingPackages) {
                 const targetContent = pkg.transfer_content?.toLowerCase().trim();
@@ -241,20 +253,18 @@ export default function FintechDashboard() {
                 if (matchedTx) {
                     const paidAmount = Number(matchedTx.amount || matchedTx.creditAmount || matchedTx.sotien || matchedTx.tien || 0);
 
-                    // Cập nhật Profile
                     await supabase.from('profiles').update({ has_purchased_package: true }).eq('id', userId);
 
-                    // Đổi trạng thái gói sang active
                     const { error: updateErr } = await supabase
                         .from('user_packages')
                         .update({ status: 'active', invested_amount: paidAmount })
                         .eq('id', pkg.id);
 
                     if (!updateErr) {
-                        // Chia hoa hồng
+                        newlyProcessedIds.push(pkg.id); // Đánh dấu đã quét xong
+
                         await supabase.rpc('distribute_commission', { p_buyer_id: userId, p_amount: paidAmount });
 
-                        // GỬI THÔNG BÁO TELEGRAM XANH NGAY TRÊN DASHBOARD
                         const teleMsgSuccess = `🟢 <b>ĐƠN NẠP TỰ ĐỘNG THÀNH CÔNG (TỪ DASHBOARD)</b>\n👤 Tài khoản: ${userEmail}\n📦 Gói mua: ${pkg.package_name}\n💰 Thực nạp: ${paidAmount.toLocaleString('vi-VN')} VNĐ\n📝 Mã GD: <b>${pkg.transfer_content}</b>`;
                         fetch('/api/tele', {
                             method: 'POST',
@@ -262,14 +272,15 @@ export default function FintechDashboard() {
                             body: JSON.stringify({ message: teleMsgSuccess })
                         }).catch(err => console.error('Lỗi gửi tele success:', err));
 
-                        activatedAny = true;
                         alert(`✅ Thanh toán thành công gói ${pkg.package_name}! Hệ thống đã cộng gói vào tài sản của bạn.`);
                     }
                 }
             }
 
-            if (activatedAny) {
-                loadData(); // Tải lại toàn bộ dữ liệu trên Dashboard để khách thấy
+            if (newlyProcessedIds.length > 0) {
+                // Xoá gói khỏi danh sách pending ngay lập tức để tránh trùng lặp ở vòng quét 5s tiếp theo
+                setPendingPackages(prev => prev.filter(p => !newlyProcessedIds.includes(p.id)));
+                loadData(); 
             }
 
         } catch (error) {
@@ -277,9 +288,12 @@ export default function FintechDashboard() {
         } finally {
             isChecking = false;
         }
-    }, 5000); // Quét 5s / lần
+    }, 5000); 
 
-    return () => clearInterval(intervalId);
+    return () => {
+        activeInterval = false;
+        clearInterval(intervalId);
+    };
   }, [pendingPackages, userId, userEmail]);
 
   const handleApplyGiftcode = async (e: React.FormEvent) => {
