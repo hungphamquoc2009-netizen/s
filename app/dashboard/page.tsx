@@ -132,10 +132,12 @@ export default function FintechDashboard() {
         setSpinCount(profile.spin_count || 0);
     }
 
+    // === CHỈ SỬA ĐÚNG CHỖ NÀY: THÊM BỘ LỌC CHẶN GÓI PENDING ===
     const { data: myPkgs } = await supabase
       .from('user_packages')
       .select('*')
       .eq('user_id', session.user.id)
+      .eq('status', 'active') 
       .order('purchased_at', { ascending: false });
     if (myPkgs) setMyPackages(myPkgs);
 
