@@ -47,7 +47,7 @@ export default function RescanPayments() {
                 const matchedTx = transactionsArray.find((tx: any) => JSON.stringify(tx).toLowerCase().includes(targetContent));
 
                 if (matchedTx) {
-                    await processActivate(order, Number(matchedTx.amount || matchedTx.creditAmount || 0), "Tự động");
+                    await processActivate(order, Number(matchedTx.amount || matchedTx.creditAmount || matchedTx.sotien || matchedTx.tien || 0), "Quét tự động bù");
                 }
             }
             addLog("Đã quét xong lịch sử ngân hàng.", 'info');
@@ -59,20 +59,24 @@ export default function RescanPayments() {
         }
     };
 
-    // HÀM 2: DUYỆT ÉP (DÀNH CHO ĐƠN BỊ SÓT HOẶC SAI NỘI DUNG)
+    // HÀM 2: DUYỆT ÉP TAY (DÀNH CHO ĐƠN BỊ SÓT HOẶC SAI NỘI DUNG)
     const handleManualApprove = async (order: any) => {
         const amount = prompt(`Xác nhận duyệt tay cho đơn này?\nNhập số tiền đã nhận (VNĐ):`, order.invested_amount);
         if (amount === null) return;
         
         setIsProcessing(true);
-        await processActivate(order, parseInt(amount), "Thủ công");
+        await processActivate(order, parseInt(amount), "Duyệt thủ công");
         setIsProcessing(false);
         loadPending();
     };
 
-    // LOGIC KÍCH HOẠT CHUNG
+    // LOGIC KÍCH HOẠT VÀ GỬI THÔNG BÁO TELEGRAM XANH
     const processActivate = async (order: any, amount: number, method: string) => {
         try {
+            // Lấy thông tin email của user để báo Tele
+            const { data: profile } = await supabase.from('profiles').select('email, account_name').eq('id', order.user_id).single();
+            const userRefInfo = profile?.email || profile?.account_name || order.user_id.substring(0, 8);
+
             // 1. Cập nhật Profile
             await supabase.from('profiles').update({ has_purchased_package: true }).eq('id', order.user_id);
 
@@ -92,7 +96,18 @@ export default function RescanPayments() {
                 if (rpcErr) {
                     addLog(`Gói đã kích hoạt nhưng LỖI CHIA HOA HỒNG: ${rpcErr.message}`, 'error');
                 } else {
-                    addLog(`[${method}] Đã bù đơn thành công cho User: ${order.user_id.substring(0,6)}`, 'success');
+                    addLog(`[${method}] Đã bù đơn thành công cho User: ${userRefInfo}`, 'success');
+
+                    // ==============================================================
+                    // BẮN THÔNG BÁO TELEGRAM MÀU XANH 🟢 BÁO CÁO ADMIN
+                    // ==============================================================
+                    const teleMsgSuccess = `🟢 <b>ĐƠN NẠP ĐÃ ĐƯỢC DUYỆT (BÙ ĐƠN)</b>\n👤 Tài khoản: ${userRefInfo}\n📦 Gói mua: ${order.package_name}\n💰 Thực nạp: ${amount.toLocaleString('vi-VN')} VNĐ\n🛠 Phương thức: <b>${method}</b>`;
+                    
+                    fetch('/api/tele', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message: teleMsgSuccess })
+                    }).catch(err => console.error('Lỗi gửi tele success:', err));
                 }
             }
         } catch (err: any) {
@@ -135,9 +150,9 @@ export default function RescanPayments() {
                                                     <div>
                                                         <div className="font-black text-slate-800">{order.package_name}</div>
                                                         <div className="text-xs text-blue-600 font-mono font-bold mt-1 bg-blue-50 px-2 py-0.5 rounded inline-block">
-                                                            Nội dung: {order.transfer_content || 'TRỐNG'}
+                                                            Nội dung CK: {order.transfer_content || 'TRỐNG'}
                                                         </div>
-                                                        <div className="text-[10px] text-slate-400 mt-2">ID: {order.user_id}</div>
+                                                        <div className="text-[10px] text-slate-400 mt-2">Vốn: {order.invested_amount?.toLocaleString('vi-VN')}đ</div>
                                                     </div>
                                                     <button 
                                                         onClick={() => handleManualApprove(order)}
@@ -161,7 +176,7 @@ export default function RescanPayments() {
                                     {results.length === 0 && <div className="text-slate-600 italic">Hệ thống sẵn sàng...</div>}
                                     {results.map((res, i) => (
                                         <div key={i} className={`${res.type === 'success' ? 'text-emerald-400' : res.type === 'error' ? 'text-rose-400' : 'text-blue-400'}`}>
-                                            [{new Date().toLocaleTimeString()}] {res.msg}
+                                            [{new Date().toLocaleTimeString('vi-VN')}] {res.msg}
                                         </div>
                                     ))}
                                 </div>
