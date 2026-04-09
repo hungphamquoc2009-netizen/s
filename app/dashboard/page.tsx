@@ -171,8 +171,14 @@ export default function FintechDashboard() {
     const { data: configData } = await supabase.from('settings').select('cskh_link').limit(1).single();
     if (configData && configData.cskh_link) setCskhLink(configData.cskh_link);
 
+    // === BẮT LỖI TẠI ĐÂY ĐỂ BIẾT NGUYÊN NHÂN ===
     try {
       const { data: refsData, error: refsError } = await supabase.rpc('get_my_referrals', { p_user_id: session.user.id });
+      
+      if (refsError) {
+          alert("Lỗi SQL từ Supabase: " + refsError.message);
+      }
+      
       if (refsData && !refsError) {
           const f1List = refsData.filter((r: any) => r.level === 'F1');
           const f2List = refsData.filter((r: any) => r.level === 'F2');
@@ -181,7 +187,9 @@ export default function FintechDashboard() {
           const sortedList = [...refsData].sort((a: any, b: any) => (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0));
           setReferralList(sortedList);
       }
-    } catch (err) {}
+    } catch (err: any) {
+        alert("Lỗi Code Web: " + err.message);
+    }
   };
 
   useEffect(() => { loadData(); }, []);
