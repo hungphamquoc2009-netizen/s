@@ -73,7 +73,6 @@ export default function FintechDashboard() {
   const [lastCheckInDate, setLastCheckInDate] = useState<string | null>(null);
   
   const [spinCount, setSpinCount] = useState<number>(0);
-  const [unconvertedDeposit, setUnconvertedDeposit] = useState<number>(0);
   const [isSpinning, setIsSpinning] = useState<boolean>(false);
   const [wheelRotation, setWheelRotation] = useState<number>(0);
   const [showConfetti, setShowConfetti] = useState<boolean>(false);
@@ -113,7 +112,7 @@ export default function FintechDashboard() {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('balance, bank_account, bank_name, account_name, has_purchased_package, created_at, check_in_streak, last_check_in, spin_count, unconverted_deposit')
+      .select('balance, bank_account, bank_name, account_name, has_purchased_package, created_at, check_in_streak, last_check_in, spin_count')
       .eq('id', session.user.id)
       .single();
       
@@ -128,7 +127,6 @@ export default function FintechDashboard() {
         setCheckInStreak(profile.check_in_streak || 0);
         setLastCheckInDate(profile.last_check_in || null);
         setSpinCount(profile.spin_count || 0);
-        setUnconvertedDeposit(profile.unconverted_deposit || 0);
     }
 
     const { data: myPkgs } = await supabase
@@ -311,7 +309,7 @@ export default function FintechDashboard() {
 
   const handleSpinWheel = async () => {
       if (spinCount <= 0) {
-          alert("Bạn đã hết lượt quay! Hãy nạp thêm 60,000đ để nhận 1 lượt quay.");
+          alert("Bạn đã hết lượt quay! Hãy mua thêm gói đầu tư 60,000đ để nhận 1 lượt quay.");
           return;
       }
       if (isSpinning) return;
@@ -512,6 +510,10 @@ export default function FintechDashboard() {
     { id: 'leaderboard', label: 'Đua top', icon: Trophy },
   ];
 
+  // Logic tính toán thanh tiến trình vòng quay từ các gói đã mua
+  const totalInvestedAmount = myPackages.reduce((sum, p) => sum + (p.invested_amount || 0), 0);
+  const currentWheelProgress = totalInvestedAmount % 60000;
+
   return (
     <div className="flex h-screen bg-[#F5F7FB] font-sans text-slate-800 overflow-hidden relative">
       
@@ -668,13 +670,13 @@ export default function FintechDashboard() {
 
                           <div className="w-full mb-6">
                               <div className="flex justify-between text-xs text-slate-500 font-medium mb-1.5">
-                                  <span>Tích lũy nạp: {unconvertedDeposit.toLocaleString()}đ</span>
+                                  <span>Tích lũy mua gói: {currentWheelProgress.toLocaleString()}đ</span>
                                   <span>Mục tiêu: 60.000đ</span>
                               </div>
                               <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                                  <div className="bg-gradient-to-r from-amber-400 to-orange-500 h-full rounded-full transition-all" style={{ width: `${Math.min((unconvertedDeposit / 60000) * 100, 100)}%` }}></div>
+                                  <div className="bg-gradient-to-r from-amber-400 to-orange-500 h-full rounded-full transition-all" style={{ width: `${Math.min((currentWheelProgress / 60000) * 100, 100)}%` }}></div>
                               </div>
-                              <p className="text-[10px] text-slate-400 text-center mt-2 italic">* Cứ mỗi 60k nạp vào hệ thống sẽ được quy đổi thành 1 lượt quay.</p>
+                              <p className="text-[10px] text-slate-400 text-center mt-2 italic">* Cứ mỗi 60k mua gói đầu tư sẽ nhận được 1 lượt quay.</p>
                           </div>
 
                           <div className="relative w-48 h-48 mb-4">

@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { 
   Users, Activity, CreditCard, Package, LogOut, Check, X, Edit, EyeOff, Plus, ArrowDownToLine, ArrowUpFromLine, Clock, LayoutDashboard,
   MoreVertical, ChevronUp, ChevronDown, Gift, Trash2, Search, Calendar, Trophy, Settings as SettingsIcon, Image as ImageIcon, UploadCloud, Loader2,
-  History, DollarSign, MinusCircle, UserPlus, ShieldAlert, Ticket 
+  History, DollarSign, MinusCircle, UserPlus, ShieldAlert, Ticket, Send 
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -64,6 +64,10 @@ export default function AdminDashboard() {
   const [isDeductMoneyModalOpen, setIsDeductMoneyModalOpen] = useState(false);
   const [deductMoneyUser, setDeductMoneyUser] = useState<any>(null);
   const [deductMoneyAmount, setDeductMoneyAmount] = useState('');
+
+  // States cho tính năng Test Telegram Bot
+  const [isTestingTele, setIsTestingTele] = useState(false);
+  const [teleTestMsg, setTeleTestMsg] = useState('');
 
   const getBankCode = (fullName: string) => {
     if (!fullName) return '';
@@ -510,6 +514,33 @@ export default function AdminDashboard() {
     }
     alert('Đã lưu cấu hình hệ thống!');
     await loadData(true);
+  };
+
+  // Hàm xử lý gửi tin nhắn Test Telegram Bot
+  const handleTestTelegram = async () => {
+    setIsTestingTele(true);
+    setTeleTestMsg('');
+    try {
+        const currentTime = new Date().toLocaleString('vi-VN');
+        const testMessage = `🤖 <b>TEST BOT TỪ ADMIN PANEL</b>\n✅ Kết nối thành công!\n⏰ Thời gian: ${currentTime}`;
+        
+        const response = await fetch('/api/tele', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: testMessage })
+        });
+
+        if (response.ok) {
+            setTeleTestMsg('Gửi tin nhắn test thành công! Hãy kiểm tra Telegram của bạn.');
+        } else {
+            const errData = await response.json().catch(() => ({}));
+            setTeleTestMsg(`Lỗi gửi tin: ${errData.error || response.statusText}`);
+        }
+    } catch (error: any) {
+        setTeleTestMsg(`Lỗi hệ thống: ${error.message}`);
+    } finally {
+        setIsTestingTele(false);
+    }
   };
 
   const today = new Date();
@@ -1206,26 +1237,52 @@ export default function AdminDashboard() {
         </div>
         )}
 
-        {/* TAB: SETTINGS (CSKH) */}
+        {/* TAB: SETTINGS */}
         {activeTab === 'settings' && (
-            <div className="max-w-2xl bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
-                <h3 className="font-bold text-xl text-slate-800 mb-6 flex items-center gap-2">
-                    <SettingsIcon className="w-6 h-6 text-blue-600" /> Cấu hình Liên hệ Hỗ trợ (CSKH)
-                </h3>
-                <div className="mb-6">
-                    <label className="block text-sm font-bold text-slate-700 mb-2">Đường link Zalo / Telegram / Messenger</label>
-                    <input 
-                        type="text" 
-                        placeholder="VD: https://zalo.me/0123456789" 
-                        value={cskhLink} 
-                        onChange={e => setCskhLink(e.target.value)} 
-                        className="w-full border border-slate-200 bg-slate-50 focus:bg-white rounded-xl p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-slate-800" 
-                    />
-                    <p className="text-sm text-slate-500 mt-2">Đường link này sẽ được hiển thị khi người dùng bấm vào nút "CSKH / Hỗ trợ" trên ứng dụng.</p>
+            <div className="max-w-2xl space-y-6">
+                <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+                    <h3 className="font-bold text-xl text-slate-800 mb-6 flex items-center gap-2">
+                        <SettingsIcon className="w-6 h-6 text-blue-600" /> Cấu hình Liên hệ Hỗ trợ (CSKH)
+                    </h3>
+                    <div className="mb-6">
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Đường link Zalo / Telegram / Messenger</label>
+                        <input 
+                            type="text" 
+                            placeholder="VD: https://zalo.me/0123456789" 
+                            value={cskhLink} 
+                            onChange={e => setCskhLink(e.target.value)} 
+                            className="w-full border border-slate-200 bg-slate-50 focus:bg-white rounded-xl p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-slate-800" 
+                        />
+                        <p className="text-sm text-slate-500 mt-2">Đường link này sẽ được hiển thị khi người dùng bấm vào nút "CSKH / Hỗ trợ" trên ứng dụng.</p>
+                    </div>
+                    <button onClick={saveSettingsInfo} className="px-8 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all">
+                        Lưu Cấu Hình
+                    </button>
                 </div>
-                <button onClick={saveSettingsInfo} className="px-8 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all">
-                    Lưu Cấu Hình
-                </button>
+
+                <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+                    <h3 className="font-bold text-xl text-slate-800 mb-4 flex items-center gap-2">
+                        <Send className="w-6 h-6 text-[#229ED9]" /> Kiểm tra Telegram Bot
+                    </h3>
+                    <p className="text-sm text-slate-500 mb-6">
+                        Nhấn nút bên dưới để gửi một tin nhắn thử nghiệm đến nhóm/kênh Telegram của bạn. Chức năng này gọi API <code>/api/tele</code> hiện có trong hệ thống để xác nhận Token và Chat ID hoạt động bình thường.
+                    </p>
+                    
+                    <button 
+                        onClick={handleTestTelegram} 
+                        disabled={isTestingTele}
+                        className="px-8 py-3.5 bg-[#229ED9] hover:bg-[#1e8ec2] text-white font-bold rounded-xl shadow-lg transition-all disabled:opacity-70 flex items-center gap-2"
+                    >
+                        {isTestingTele ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+                        {isTestingTele ? 'Đang gửi test...' : 'Gửi Tin Nhắn Test'}
+                    </button>
+
+                    {teleTestMsg && (
+                        <div className={`mt-4 p-4 rounded-xl text-sm font-bold border ${teleTestMsg.includes('thành công') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'}`}>
+                            {teleTestMsg}
+                        </div>
+                    )}
+                </div>
             </div>
         )}
 
