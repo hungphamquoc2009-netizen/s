@@ -1,17 +1,20 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// Cấu hình Supabase với Service Role Key để có quyền ghi (vì chạy ngầm ko có session user)
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! 
-);
+// THÊM DÒNG NÀY: Bắt buộc route này luôn chạy động, không build tĩnh
+export const dynamic = 'force-dynamic';
 
 const API_BANK = "https://thueapibank.vn/historyapivpbankneov2/d33a5cde4962560a0138920f20d550df";
 
 export async function GET() {
   try {
-    // 1. Lấy danh sách các đơn hàng đang chờ (pending) trong 24h qua
+    // CHUYỂN VÀO ĐÂY: Khởi tạo bên trong hàm để tránh lỗi "supabaseKey is required" khi Build
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY! 
+    );
+
+    // 1. Lấy danh sách các đơn hàng đang chờ (pending)
     const { data: pendingOrders } = await supabaseAdmin
       .from('user_packages')
       .select('*')
@@ -40,7 +43,7 @@ export async function GET() {
       if (matchedTx) {
         const paidAmount = Number(matchedTx.amount || matchedTx.creditAmount || matchedTx.sotien || 0);
 
-        // Cập nhật Database: Kích hoạt gói và Profile
+        // Cập nhật Database
         await Promise.all([
           supabaseAdmin.from('user_packages').update({ status: 'active', invested_amount: paidAmount }).eq('id', order.id),
           supabaseAdmin.from('profiles').update({ has_purchased_package: true }).eq('id', order.user_id),
