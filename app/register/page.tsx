@@ -17,7 +17,7 @@ function RegisterFormContent() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [message, setMessage] = useState('');
 
-  // Tự động lấy mã giới thiệu từ URL (VD: ?ref=12345)
+  // Tự động lấy mã giới thiệu từ URL (VD: ?ref=123E45)
   useEffect(() => {
     const ref = searchParams.get('ref');
     if (ref) {
@@ -40,33 +40,39 @@ function RegisterFormContent() {
 
       if (authError) throw authError;
 
-      // --- PHẦN BỔ SUNG: TÌM UUID GỐC TỪ MÃ GIỚI THIỆU NGẮN ---
-      let fullReferrerId = null;
-      if (referralCode && referralCode.length >= 6) {
-          const { data: referrerData, error: refError } = await supabase
-              .from('profiles')
-              .select('id')
-              .ilike('id', `${referralCode}%`)
-              .maybeSingle();
-
-          if (referrerData && !refError) {
-              fullReferrerId = referrerData.id;
-          }
-      }
-      // --------------------------------------------------------
-
-      // 2. LƯU PROFILE BẰNG UPSERT (TRÁNH LỖI TRÙNG ID) VÀ TẶNG 30K
+      // 2. TÌM VÀ LƯU PROFILE (Chỉ thực hiện khi tạo Auth thành công)
       if (authData.user) {
+        let fullReferrerId = null;
+
+        // GIẢI PHÁP MỚI: Lấy danh sách ID về và dùng Javascript để tìm
+        // Tránh hoàn toàn lỗi "invalid syntax for type uuid" của Postgres
+        if (referralCode && referralCode.length >= 6) {
+            const { data: allProfiles, error: fetchError } = await supabase
+                .from('profiles')
+                .select('id');
+
+            if (allProfiles && !fetchError) {
+                // Tìm người có ID bắt đầu bằng mã giới thiệu 6 ký tự
+                const matchedUser = allProfiles.find(p => 
+                    p.id.toUpperCase().startsWith(referralCode.toUpperCase())
+                );
+                
+                if (matchedUser) {
+                    fullReferrerId = matchedUser.id; // Gắn UUID chuẩn 36 ký tự
+                }
+            }
+        }
+
+        // Lưu dữ liệu vào Database cùng với ID người giới thiệu chuẩn
         const { error: profileError } = await supabase.from('profiles').upsert([
           { 
             id: authData.user.id, 
             balance: 30000, // Tặng tiền tân thủ
             has_purchased_package: false,
-            referred_by: fullReferrerId // Lưu UUID chuẩn vào DB thay vì mã ngắn
+            referred_by: fullReferrerId // Sẽ lưu UUID chuẩn nếu tìm thấy
           }
         ]);
         
-        // NẾU CÓ LỖI TỪ SUPABASE, BÁO NGAY RA MÀN HÌNH ĐỂ DỄ SỬA
         if (profileError) {
           console.error("Lỗi tạo profile:", profileError);
           throw new Error("Lỗi lưu dữ liệu: " + profileError.message);
@@ -132,7 +138,7 @@ function RegisterFormContent() {
             className={`w-full border border-slate-200 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
               isReferralLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white'
             }`}
-            placeholder="Nhập mã giới thiệu..."
+            placeholder="Nhập mã giới thiệu 6 ký tự..."
           />
           {isReferralLocked && (
             <p className="text-xs font-semibold text-emerald-600 mt-2 flex items-center gap-1">
