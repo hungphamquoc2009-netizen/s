@@ -8,7 +8,7 @@ const API_BANK = "https://thueapibank.vn/historyapivpbankneov2/d33a5cde4962560a0
 export async function GET() {
   // 1. LẤY BIẾN VÀ KIỂM TRA NGAY TẠI ĐÂY
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseKey = process.env.MY_SECRET_KEY;
 
   if (!supabaseUrl) {
     return NextResponse.json({ error: "LỖI: Vercel đang thiếu biến NEXT_PUBLIC_SUPABASE_URL" }, { status: 500 });
