@@ -1195,7 +1195,7 @@ export default function FintechDashboard() {
                      </button>
                    </form>
                 </div>
-              </div>
+              </div> 
             )}
 
           </div>
