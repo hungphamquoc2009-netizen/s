@@ -108,7 +108,7 @@ function PaymentContent() {
 
   // Hệ thống Auto-Check (Polling) API Bank
   useEffect(() => {
-    if (!transferContent || !userId) return;
+    if (!transferContent || !userId || !userEmail) return;
 
     let intervalId: NodeJS.Timeout;
     let isChecking = false;
@@ -165,7 +165,15 @@ function PaymentContent() {
                   p_amount: paidAmount 
               });
               
-              // ĐÃ XÓA THÔNG BÁO XANH Ở ĐÂY ĐỂ TRÁNH GỬI TRÙNG
+              // ==============================================================
+              // BỔ SUNG: BẮN THÔNG BÁO XANH 🟢 KHI AUTO-SCAN THÀNH CÔNG
+              // ==============================================================
+              const teleMsgSuccess = `🟢 <b>ĐƠN NẠP TỰ ĐỘNG THÀNH CÔNG</b>\n👤 Tài khoản: ${userEmail}\n📦 Gói mua: ${packageName}\n💰 Thực nạp: ${paidAmount.toLocaleString('vi-VN')} VNĐ\n📝 Mã GD: <b>${transferContent}</b>`;
+              fetch('/api/tele', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ message: teleMsgSuccess })
+              }).catch(err => console.error('Lỗi gửi tele success:', err));
           }
 
           // Chuyển hướng về Dashboard
@@ -192,7 +200,7 @@ function PaymentContent() {
       if (intervalId) clearInterval(intervalId);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [transferContent, userId]);
+  }, [transferContent, userId, userEmail, packageName]);
 
   // Hàm xử lý copy
   const handleCopy = (text: string, field: string) => {
@@ -236,7 +244,7 @@ function PaymentContent() {
             />
           </div>
 
-          <div className="flex flex-col items-center justify-center text-center space-y-3">
+          <div className="flex flex-col items-center justify-center text-center space-y-4">
             <div className="flex items-center gap-2 text-[#1E6EFF] bg-blue-50 px-4 py-2 rounded-full">
               <Loader2 className="w-4 h-4 animate-spin" />
               <span className="text-sm font-bold animate-pulse">Đang chờ thanh toán...</span>
@@ -244,6 +252,14 @@ function PaymentContent() {
             <p className="text-xs text-slate-400 max-w-[250px]">
               Hệ thống sẽ tự động xác nhận ngay khi nhận được tiền. Bạn có thể đóng trang này sau khi chuyển.
             </p>
+            
+            {/* Nút điều hướng về Dashboard để kích hoạt Tool quét ngầm */}
+            <button 
+              onClick={() => window.location.href = '/dashboard'}
+              className="mt-2 w-full flex items-center justify-center gap-2 bg-[#1E6EFF] hover:bg-blue-600 text-white py-3 rounded-xl font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95"
+            >
+              <CheckCircle2 className="w-5 h-5" /> Tôi đã chuyển khoản xong
+            </button>
           </div>
         </div>
 

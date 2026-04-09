@@ -10,7 +10,6 @@ import {
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
-  // STATE MỚI: QUẢN LÝ MENU TRÊN MOBILE
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const [users, setUsers] = useState<any[]>([]);
@@ -147,8 +146,41 @@ export default function AdminDashboard() {
     const packageSubscription = supabase.channel('public-packages-changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'packages' }, () => loadData(true)).subscribe();
         
+    // =========================================================================
+    // HỆ THỐNG RADAR: BẮN THÔNG BÁO XANH KHI CÓ ĐƠN NẠP MỚI VÀO LỊCH SỬ NẠP GÓI
+    // =========================================================================
     const uPkgSubscription = supabase.channel('public-user-packages-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'user_packages' }, () => loadData(true)).subscribe();
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'user_packages' }, async (payload) => {
+            loadData(true); // Cập nhật lại giao diện Admin
+
+            const newPkg = payload.new as any;
+            const oldPkg = payload.old as any;
+            const eventType = payload.eventType;
+
+            // Phát hiện nếu có gói mới toanh được tạo ở trạng thái active, HOẶC gói pending vừa được chuyển sang active
+            const isNewActive = eventType === 'INSERT' && newPkg.status === 'active';
+            const isChangedToActive = eventType === 'UPDATE' && newPkg.status === 'active' && (!oldPkg || oldPkg.status !== 'active');
+
+            // Điều kiện: Phải là gói Active và KHÔNG phải do Admin bấm Thêm Thủ Công (để tránh báo 2 lần)
+            if ((isNewActive || isChangedToActive) && newPkg.transfer_content !== 'ADMIN_ADD') {
+                try {
+                    // Lấy email của khách hàng để hiện lên tin nhắn
+                    const { data: profile } = await supabase.from('profiles').select('email, account_name').eq('id', newPkg.user_id).single();
+                    const uName = profile?.email || profile?.account_name || newPkg.user_id.substring(0, 8);
+
+                    const currentTime = new Date().toLocaleString('vi-VN');
+                    const teleMsg = `🟢 <b>ĐƠN NẠP VỪA THÀNH CÔNG TỰ ĐỘNG</b>\n👤 Tài khoản: ${uName}\n📦 Gói mua: ${newPkg.package_name}\n💰 Thực nạp: ${(newPkg.invested_amount || 0).toLocaleString('vi-VN')} VNĐ\n📝 Mã GD: <b>${newPkg.transfer_content || 'Không có'}</b>\n⏰ Thời gian: ${currentTime}`;
+                    
+                    fetch('/api/tele', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message: teleMsg })
+                    }).catch(err => console.error("Lỗi gửi tele tự động:", err));
+                } catch (error) {
+                    console.error("Lỗi khi radar quét gói:", error);
+                }
+            }
+        }).subscribe();
 
     const eventSubscription = supabase.channel('public-events-changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => loadData(true)).subscribe();
@@ -247,11 +279,13 @@ export default function AdminDashboard() {
         currentDailyRate = yearlyRate / 365 / 100;
     }
 
+    const amount = parseInt(newPkgAmount);
+
     const { error } = await supabase.from('user_packages').insert([{
         user_id: managePkgUser.id,
         package_id: pkg.id,
         package_name: pkg.name,
-        invested_amount: parseInt(newPkgAmount),
+        invested_amount: amount,
         daily_interest_rate: currentDailyRate, 
         status: 'active',
         purchased_at: new Date().toISOString(),
@@ -259,7 +293,22 @@ export default function AdminDashboard() {
     }]);
 
     if (error) return alert('Lỗi thêm gói: ' + error.message);
-    alert('Thêm gói thành công!');
+
+    // Chia hoa hồng
+    await supabase.rpc('distribute_commission', { p_buyer_id: managePkgUser.id, p_amount: amount });
+
+    // Thông báo xanh khi Admin thêm thủ công
+    const currentTime = new Date().toLocaleString('vi-VN');
+    const targetEmail = getUserEmail(managePkgUser.id);
+    const teleMsgSuccess = `🟢 <b>ĐƠN NẠP ĐÃ THÀNH CÔNG (ADMIN THÊM GÓI TAY)</b>\n👤 Tài khoản: ${targetEmail}\n📦 Gói mua: ${pkg.name}\n💰 Thực nạp: ${amount.toLocaleString('vi-VN')} VNĐ\n⏰ Thời gian: ${currentTime}`;
+    
+    fetch('/api/tele', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: teleMsgSuccess })
+    }).catch(err => console.error('Lỗi gửi tele success:', err));
+
+    alert('Thêm gói thành công! Đã chia hoa hồng và báo Tele.');
     setNewPkgAmount('');
     await loadData(true);
   };
