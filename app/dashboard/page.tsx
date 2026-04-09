@@ -62,6 +62,8 @@ export default function FintechDashboard() {
   const [referralList, setReferralList] = useState<any[]>([]); 
 
   const [myPackages, setMyPackages] = useState<any[]>([]);
+  // STATE MỚI: THEO DÕI GÓI PENDING ĐỂ QUÉT NGẦM
+  const [pendingPackages, setPendingPackages] = useState<any[]>([]);
   const [currentTime, setCurrentTime] = useState(new Date());
 
   const [newPassword, setNewPassword] = useState('');
@@ -132,6 +134,7 @@ export default function FintechDashboard() {
         setSpinCount(profile.spin_count || 0);
     }
 
+    // Lấy gói đang chạy
     const { data: myPkgs } = await supabase
       .from('user_packages')
       .select('*')
@@ -139,6 +142,14 @@ export default function FintechDashboard() {
       .eq('status', 'active') 
       .order('purchased_at', { ascending: false });
     if (myPkgs) setMyPackages(myPkgs);
+
+    // LẤY CÁC GÓI PENDING ĐỂ QUÉT NGẦM
+    const { data: pPkgs } = await supabase
+      .from('user_packages')
+      .select('*')
+      .eq('user_id', session.user.id)
+      .eq('status', 'pending');
+    if (pPkgs) setPendingPackages(pPkgs);
 
     const { data: txs } = await supabase
       .from('transactions')
@@ -171,12 +182,11 @@ export default function FintechDashboard() {
     const { data: configData } = await supabase.from('settings').select('cskh_link').limit(1).single();
     if (configData && configData.cskh_link) setCskhLink(configData.cskh_link);
 
-    // === BẮT LỖI TẠI ĐÂY ĐỂ BIẾT NGUYÊN NHÂN ===
     try {
       const { data: refsData, error: refsError } = await supabase.rpc('get_my_referrals', { p_user_id: session.user.id });
       
       if (refsError) {
-          alert("Lỗi SQL từ Supabase: " + refsError.message);
+          console.error("Lỗi SQL từ Supabase: " + refsError.message);
       }
       
       if (refsData && !refsError) {
@@ -188,11 +198,89 @@ export default function FintechDashboard() {
           setReferralList(sortedList);
       }
     } catch (err: any) {
-        alert("Lỗi Code Web: " + err.message);
+        console.error("Lỗi Code Web: " + err.message);
     }
   };
 
   useEffect(() => { loadData(); }, []);
+
+  // ==============================================================
+  // HỆ THỐNG AUTO-CHECK NGẦM TRÊN DASHBOARD (CHỐNG LỖI TẮT TRANG)
+  // ==============================================================
+  useEffect(() => {
+    if (pendingPackages.length === 0 || !userId || !userEmail) return;
+
+    let isChecking = false;
+    const API_BANK = "https://thueapibank.vn/historyapivpbankneov2/d33a5cde4962560a0138920f20d550df";
+
+    const intervalId = setInterval(async () => {
+        if (isChecking) return;
+        isChecking = true;
+
+        try {
+            const res = await fetch(API_BANK);
+            const bankData = await res.json();
+            
+            let transactionsArray = [];
+            if (Array.isArray(bankData)) transactionsArray = bankData;
+            else if (bankData.data && Array.isArray(bankData.data)) transactionsArray = bankData.data;
+            else if (bankData.transactions && Array.isArray(bankData.transactions)) transactionsArray = bankData.transactions;
+            else if (bankData.records && Array.isArray(bankData.records)) transactionsArray = bankData.records;
+
+            let activatedAny = false;
+
+            for (const pkg of pendingPackages) {
+                const targetContent = pkg.transfer_content?.toLowerCase().trim();
+                if (!targetContent) continue;
+
+                const matchedTx = transactionsArray.find((tx: any) => {
+                    const txString = JSON.stringify(tx).toLowerCase();
+                    return txString.includes(targetContent);
+                });
+
+                if (matchedTx) {
+                    const paidAmount = Number(matchedTx.amount || matchedTx.creditAmount || matchedTx.sotien || matchedTx.tien || 0);
+
+                    // Cập nhật Profile
+                    await supabase.from('profiles').update({ has_purchased_package: true }).eq('id', userId);
+
+                    // Đổi trạng thái gói sang active
+                    const { error: updateErr } = await supabase
+                        .from('user_packages')
+                        .update({ status: 'active', invested_amount: paidAmount })
+                        .eq('id', pkg.id);
+
+                    if (!updateErr) {
+                        // Chia hoa hồng
+                        await supabase.rpc('distribute_commission', { p_buyer_id: userId, p_amount: paidAmount });
+
+                        // GỬI THÔNG BÁO TELEGRAM XANH NGAY TRÊN DASHBOARD
+                        const teleMsgSuccess = `🟢 <b>ĐƠN NẠP TỰ ĐỘNG THÀNH CÔNG (TỪ DASHBOARD)</b>\n👤 Tài khoản: ${userEmail}\n📦 Gói mua: ${pkg.package_name}\n💰 Thực nạp: ${paidAmount.toLocaleString('vi-VN')} VNĐ\n📝 Mã GD: <b>${pkg.transfer_content}</b>`;
+                        fetch('/api/tele', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ message: teleMsgSuccess })
+                        }).catch(err => console.error('Lỗi gửi tele success:', err));
+
+                        activatedAny = true;
+                        alert(`✅ Thanh toán thành công gói ${pkg.package_name}! Hệ thống đã cộng gói vào tài sản của bạn.`);
+                    }
+                }
+            }
+
+            if (activatedAny) {
+                loadData(); // Tải lại toàn bộ dữ liệu trên Dashboard để khách thấy
+            }
+
+        } catch (error) {
+            console.error("Lỗi khi fetch API Bank ngầm:", error);
+        } finally {
+            isChecking = false;
+        }
+    }, 5000); // Quét 5s / lần
+
+    return () => clearInterval(intervalId);
+  }, [pendingPackages, userId, userEmail]);
 
   const handleApplyGiftcode = async (e: React.FormEvent) => {
     e.preventDefault();
