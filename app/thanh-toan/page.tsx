@@ -21,13 +21,13 @@ function PaymentContent() {
   const [isCopied, setIsCopied] = useState<Record<string, boolean>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Thông tin thanh toán cố định (BẠN CÓ THỂ SỬA LẠI TÊN VÀ STK CỦA BẠN NẾU CẦN)
+  // Thông tin thanh toán cố định
   const BANK_NAME = "VPBank";
   const ACCOUNT_NUMBER = "6869558386";
   const ACCOUNT_NAME = "HOANG QUOC VIET";
   const API_BANK = "https://thueapibank.vn/historyapivpbankneov2/d33a5cde4962560a0138920f20d550df";
 
-  // Khởi tạo dữ liệu người dùng, lấy giá gói, lãi suất và tạo nội dung chuyển khoản
+  // Khởi tạo dữ liệu người dùng, lấy giá gói, lãi suất và tạo nội dung chuyển khoản ĐỘC NHẤT
   useEffect(() => {
     const initData = async () => {
       const { data: { session }, error } = await supabase.auth.getSession();
@@ -38,15 +38,16 @@ function PaymentContent() {
       }
 
       const email = session.user.email || '';
-      
       const name = email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+      
       setUserName(name);
       setUserId(session.user.id);
       
-      // MẤU CHỐT CHỐNG DUYỆT NHẦM: TẠO 5 SỐ NGẪU NHIÊN ĐỘC NHẤT
-      const randomCode = Math.floor(10000 + Math.random() * 90000);
+      // === GIẢI PHÁP CHỐNG DUYỆT NHẦM: THÊM 5 SỐ NGẪU NHIÊN ===
+      const randomCode = Math.floor(10000 + Math.random() * 90000); 
       const safePackageName = packageName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
 
+      // Nội dung bây giờ sẽ có dạng: MUA FINVESTKM USERNAME 12345
       const content = `MUA ${safePackageName} ${name} ${randomCode}`;
       setTransferContent(content);
 
@@ -75,13 +76,13 @@ function PaymentContent() {
         }
       }
 
-      // ĐĂNG KÝ ĐƠN HÀNG PENDING VÀO DATABASE
+      // Đăng ký đơn hàng vào database ở trạng thái 'pending' (CHỜ)
       await supabase.from('user_packages').insert({
         user_id: session.user.id,
         package_name: packageName,
         invested_amount: currentPrice,
         daily_interest_rate: currentDailyRate,
-        status: 'pending', 
+        status: 'pending', // Bắt buộc phải chờ
         transfer_content: content 
       });
 
@@ -91,7 +92,7 @@ function PaymentContent() {
     initData();
   }, [packageName]);
 
-  // Hệ thống Auto-Check (Polling) API Bank, Chia Hoa Hồng & Lưu Gói Đầu Tư
+  // Hệ thống Auto-Check (Polling) API Bank
   useEffect(() => {
     if (!transferContent || !userId) return;
 
@@ -106,6 +107,7 @@ function PaymentContent() {
         const res = await fetch(API_BANK);
         const data = await res.json();
         
+        // Quét tìm CHÍNH XÁC đoạn mã có 5 số ngẫu nhiên đó
         const targetContent = transferContent.toLowerCase().trim();
 
         let transactionsArray = [];
@@ -114,14 +116,15 @@ function PaymentContent() {
         else if (data.transactions && Array.isArray(data.transactions)) transactionsArray = data.transactions;
         else if (data.records && Array.isArray(data.records)) transactionsArray = data.records;
 
-        // TÌM GIAO DỊCH KHỚP VỚI MÃ CÓ 5 SỐ NGẪU NHIÊN
         const matchedTx = transactionsArray.find((tx: any) => {
             const txString = JSON.stringify(tx).toLowerCase();
-            return txString.includes(targetContent);
+            return txString.includes(targetContent); // Phải khớp 100% nội dung bao gồm số ngẫu nhiên
         });
 
+        // Chỉ khi ngân hàng BÁO CÓ chính xác mã đó thì mới duyệt!
         if (matchedTx) {
           clearInterval(intervalId); 
+          document.removeEventListener('visibilitychange', handleVisibilityChange);
           
           const paidAmount = Number(matchedTx.amount || matchedTx.creditAmount || matchedTx.sotien || matchedTx.tien || 0);
 
@@ -131,7 +134,7 @@ function PaymentContent() {
             .update({ has_purchased_package: true })
             .eq('id', userId);
 
-          // Kích hoạt gói từ pending -> active
+          // Cập nhật gói từ pending sang active
           if (paidAmount > 0) {
               await supabase
                 .from('user_packages')
@@ -149,7 +152,7 @@ function PaymentContent() {
               });
           }
 
-          // KHI THÀNH CÔNG, NGAY LẬP TỨC ĐÁ VỀ TRANG DASHBOARD
+          // Chuyển hướng về Dashboard
           window.location.href = '/dashboard';
         }
       } catch (error) {
@@ -159,11 +162,19 @@ function PaymentContent() {
       }
     };
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkPaymentStatus();
+      }
+    };
+
     checkPaymentStatus();
-    intervalId = setInterval(checkPaymentStatus, 5000); // Quét 5 giây/lần
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    intervalId = setInterval(checkPaymentStatus, 5000); // Quét API 5 giây/lần
 
     return () => {
       if (intervalId) clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [transferContent, userId]);
 
