@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, Suspense } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { 
   Bell, Search, User, ArrowDownToLine, ArrowUpFromLine, 
   TrendingUp, Sparkles, CheckCircle2, Info, AlertTriangle, 
@@ -426,12 +426,14 @@ export default function FintechDashboard() {
               throw txError;
           }
 
+          // ===== GỌI API THÔNG BÁO TELEGRAM =====
           const teleMessage = `🔴 <b>YÊU CẦU RÚT TIỀN MỚI</b>\n👤 Tài khoản: ${userEmail}\n💰 Số tiền: ${numAmount.toLocaleString('vi-VN')} VNĐ\n🏦 Ngân hàng: ${bankName || 'Không rõ'} - ${bankAccount || 'Không rõ'}`;
           fetch('/api/tele', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ message: teleMessage })
           }).catch(err => console.error('Lỗi gửi tele:', err));
+          // =====================================
 
           alert(`Yêu cầu rút ${numAmount.toLocaleString('vi-VN')} VNĐ đã được gửi. Hệ thống đã trừ số dư!`);
           setBalance(newBalance);
@@ -450,11 +452,9 @@ export default function FintechDashboard() {
       window.location.href = `/thanh-toan?package=${encodeURIComponent(packageName)}&returnUrl=/`;
   };
 
-  // PHẦN THAY ĐỔI: Đường link giới thiệu ngắn gọn dùng ID
   const copyReferralLink = () => {
-    navigator.clipboard.writeText(`https://finvest.fun/register/${userId}`);
-    setIsCopied(true); 
-    setTimeout(() => setIsCopied(false), 2000);
+    navigator.clipboard.writeText(`https://finvest.fun/register?ref=${userId}`);
+    setIsCopied(true); setTimeout(() => setIsCopied(false), 2000);
   };
 
   const handleClaimInterest = async (pkgId: string) => {
@@ -510,6 +510,7 @@ export default function FintechDashboard() {
     { id: 'leaderboard', label: 'Đua top', icon: Trophy },
   ];
 
+  // Logic tính toán thanh tiến trình vòng quay từ các gói đã mua
   const totalInvestedAmount = myPackages.reduce((sum, p) => sum + (p.invested_amount || 0), 0);
   const currentWheelProgress = totalInvestedAmount % 60000;
 
@@ -1018,8 +1019,6 @@ export default function FintechDashboard() {
                   <div className="p-4 bg-indigo-50 text-indigo-600 rounded-full mb-4"><LinkIcon className="w-8 h-8" /></div>
                   <h2 className="text-2xl font-bold text-slate-900 mb-2">Mã giới thiệu của bạn</h2>
                   <p className="text-slate-500 text-sm mb-8 max-w-md">Chia sẻ link giới thiệu cho bạn bè để nhận ngay phần trăm hoa hồng.</p>
-                  
-                  {/* CẬP NHẬT: URL rút gọn dùng ID */}
                   <button onClick={copyReferralLink} className={`w-full max-w-sm py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg hover:-translate-y-1 ${isCopied ? 'bg-emerald-500 text-white shadow-emerald-500/25' : 'bg-gradient-to-r from-indigo-600 to-[#1E6EFF] text-white shadow-blue-500/25'}`}>
                     {isCopied ? <><CheckCircle2 className="w-6 h-6" /> Đã sao chép thành công</> : <><Copy className="w-6 h-6" /> Sao chép Link Giới Thiệu</>}
                   </button>
