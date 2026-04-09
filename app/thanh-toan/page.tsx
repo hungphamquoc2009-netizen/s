@@ -14,6 +14,7 @@ function PaymentContent() {
   const packageName = searchParams.get('package') || 'Goi_Tieu_Chuan';
 
   const [userName, setUserName] = useState<string>('');
+  const [userEmail, setUserEmail] = useState<string>(''); // Lưu trữ email để gửi Tele
   const [userId, setUserId] = useState<string>('');
   const [transferContent, setTransferContent] = useState<string>('');
   const [packagePrice, setPackagePrice] = useState<number>(0);
@@ -38,12 +39,13 @@ function PaymentContent() {
       }
 
       const email = session.user.email || '';
-      const name = email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+      setUserEmail(email); // Gắn email vào state
       
+      const name = email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
       setUserName(name);
       setUserId(session.user.id);
       
-      // === GIẢI PHÁP CHỐNG DUYỆT NHẦM: THÊM 5 SỐ NGẪU NHIÊN ===
+      // Tạo 5 số ngẫu nhiên
       const randomCode = Math.floor(10000 + Math.random() * 90000); 
       const safePackageName = packageName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
 
@@ -77,7 +79,7 @@ function PaymentContent() {
       }
 
       // Đăng ký đơn hàng vào database ở trạng thái 'pending' (CHỜ)
-      await supabase.from('user_packages').insert({
+      const { error: insertErr } = await supabase.from('user_packages').insert({
         user_id: session.user.id,
         package_name: packageName,
         invested_amount: currentPrice,
@@ -85,6 +87,18 @@ function PaymentContent() {
         status: 'pending', // Bắt buộc phải chờ
         transfer_content: content 
       });
+
+      // ==============================================================
+      // THÔNG BÁO TELEGRAM SỐ 1: KHI KHÁCH BẮT ĐẦU MỞ MÃ QR ĐỂ QUÉT
+      // ==============================================================
+      if (!insertErr) {
+          const teleMsgPending = `🟡 <b>CÓ KHÁCH ĐANG MỞ MÃ QR NẠP TIỀN</b>\n👤 Tài khoản: ${email}\n📦 Gói mua: ${packageName}\n💰 Cần nạp: ${currentPrice.toLocaleString('vi-VN')} VNĐ\n📝 Nội dung CK: <b>${content}</b>`;
+          fetch('/api/tele', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ message: teleMsgPending })
+          }).catch(err => console.error('Lỗi gửi tele pending:', err));
+      }
 
       setIsLoading(false);
     };
@@ -94,7 +108,7 @@ function PaymentContent() {
 
   // Hệ thống Auto-Check (Polling) API Bank
   useEffect(() => {
-    if (!transferContent || !userId) return;
+    if (!transferContent || !userId || !userEmail) return;
 
     let intervalId: NodeJS.Timeout;
     let isChecking = false;
@@ -150,6 +164,16 @@ function PaymentContent() {
                   p_buyer_id: userId, 
                   p_amount: paidAmount 
               });
+
+              // ==============================================================
+              // THÔNG BÁO TELEGRAM SỐ 2: KHI NGÂN HÀNG ĐÃ NHẬN TIỀN
+              // ==============================================================
+              const teleMsgSuccess = `🟢 <b>ĐƠN NẠP ĐÃ TỰ ĐỘNG THÀNH CÔNG</b>\n👤 Tài khoản: ${userEmail}\n📦 Gói mua: ${packageName}\n💰 Thực nạp: ${paidAmount.toLocaleString('vi-VN')} VNĐ\n📝 Mã GD: <b>${transferContent}</b>`;
+              fetch('/api/tele', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ message: teleMsgSuccess })
+              }).catch(err => console.error('Lỗi gửi tele success:', err));
           }
 
           // Chuyển hướng về Dashboard
@@ -176,7 +200,7 @@ function PaymentContent() {
       if (intervalId) clearInterval(intervalId);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [transferContent, userId]);
+  }, [transferContent, userId, userEmail, packageName]);
 
   // Hàm xử lý copy
   const handleCopy = (text: string, field: string) => {
