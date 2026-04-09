@@ -453,9 +453,9 @@ export default function FintechDashboard() {
       window.location.href = `/thanh-toan?package=${encodeURIComponent(packageName)}&returnUrl=/`;
   };
 
-  // CẬP NHẬT GÁN BIẾN MÃ GIỚI THIỆU NGẮN
+  // SỬA LẠI ĐƯỜNG LINK TRỎ THẲNG ĐẾN TRANG /register 
   const copyReferralLink = () => {
-    navigator.clipboard.writeText(`https://finvest.fun/register/${shortRefCode}`);
+    navigator.clipboard.writeText(`https://finvest.fun/register?ref=${shortRefCode}`);
     setIsCopied(true); 
     setTimeout(() => setIsCopied(false), 2000);
   };
