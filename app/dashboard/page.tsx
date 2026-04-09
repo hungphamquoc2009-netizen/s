@@ -155,21 +155,32 @@ export default function FintechDashboard() {
       .limit(100);
     if (txs) setTxHistory(txs);
 
-    // FIX 1: Lấy và sắp xếp gói đầu tư từ bé đến lớn
+    // Lấy và sắp xếp gói đầu tư
     const { data: pkgs, error: pkgsErr } = await supabase.from('packages').select('*').order('price', { ascending: true });
+    let processPkgs = [];
+    
     if (pkgsErr) {
         // Phương án dự phòng nếu cột price không tồn tại, tự động sort bằng cách bóc tách số từ text
         const { data: fallbackPkgs } = await supabase.from('packages').select('*');
         if (fallbackPkgs) {
-            const sorted = fallbackPkgs.sort((a, b) => {
+            processPkgs = fallbackPkgs.sort((a, b) => {
                 const priceA = parseInt(String(a.limits || a.name || '').replace(/\D/g, '')) || 0;
                 const priceB = parseInt(String(b.limits || b.name || '').replace(/\D/g, '')) || 0;
                 return priceA - priceB;
             });
-            setPackages(sorted);
         }
     } else if (pkgs) {
-        setPackages(pkgs);
+        processPkgs = pkgs;
+    }
+
+    // Logic ghim (Pin): Đẩy các gói có badge (như Khuyên dùng, HOT) lên đầu danh sách
+    if (processPkgs.length > 0) {
+        processPkgs.sort((a, b) => {
+            const aPinned = (a.badge && a.badge.trim() !== '') ? 1 : 0;
+            const bPinned = (b.badge && b.badge.trim() !== '') ? 1 : 0;
+            return bPinned - aPinned; 
+        });
+        setPackages(processPkgs);
     }
 
     const { data: eventsData } = await supabase.from('events').select('*').order('created_at', { ascending: false });
@@ -238,7 +249,6 @@ export default function FintechDashboard() {
             else if (bankData.transactions && Array.isArray(bankData.transactions)) transactionsArray = bankData.transactions;
             else if (bankData.records && Array.isArray(bankData.records)) transactionsArray = bankData.records;
 
-            // FIX 2: Lưu các ID đã xử lý thành công để gỡ khỏi pendingPackages
             const newlyProcessedIds: string[] = [];
 
             for (const pkg of pendingPackages) {
@@ -261,7 +271,7 @@ export default function FintechDashboard() {
                         .eq('id', pkg.id);
 
                     if (!updateErr) {
-                        newlyProcessedIds.push(pkg.id); // Đánh dấu đã quét xong
+                        newlyProcessedIds.push(pkg.id);
 
                         await supabase.rpc('distribute_commission', { p_buyer_id: userId, p_amount: paidAmount });
 
@@ -278,7 +288,6 @@ export default function FintechDashboard() {
             }
 
             if (newlyProcessedIds.length > 0) {
-                // Xoá gói khỏi danh sách pending ngay lập tức để tránh trùng lặp ở vòng quét 5s tiếp theo
                 setPendingPackages(prev => prev.filter(p => !newlyProcessedIds.includes(p.id)));
                 loadData(); 
             }
@@ -626,7 +635,6 @@ export default function FintechDashboard() {
   const totalInvestedAmount = myPackages.reduce((sum, p) => sum + (p.invested_amount || 0), 0);
   const currentWheelProgress = totalInvestedAmount % 60000;
   
-  // TÍNH TỔNG HOA HỒNG NHẬN ĐƯỢC
   const totalCommissionEarned = txHistory.filter(tx => tx.type === 'hoa_hong').reduce((sum, tx) => sum + (tx.amount || 0), 0);
 
   return (
@@ -1143,7 +1151,6 @@ export default function FintechDashboard() {
                 <div className="space-y-4">
                   <h3 className="text-xl font-bold text-slate-900">Thống kê giới thiệu</h3>
                   
-                  {/* BỔ SUNG: KHỐI THỐNG KÊ TỔNG NẠP VÀ TỔNG HOA HỒNG */}
                   <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="flex flex-col items-center justify-center p-6 bg-blue-50 rounded-2xl border border-blue-100 shadow-sm">
                           <span className="text-slate-500 font-medium mb-2">Tổng số lượt mời</span>
@@ -1346,7 +1353,7 @@ export default function FintechDashboard() {
 
           </div>
         </main>
-      </div> 
+      </div>
     </div>
   );
 }
