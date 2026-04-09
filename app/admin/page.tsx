@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { 
   Users, Activity, CreditCard, Package, LogOut, Check, X, Edit, EyeOff, Plus, ArrowDownToLine, ArrowUpFromLine, Clock, LayoutDashboard,
   MoreVertical, ChevronUp, ChevronDown, Gift, Trash2, Search, Calendar, Trophy, Settings as SettingsIcon, Image as ImageIcon, UploadCloud, Loader2,
-  History, DollarSign, MinusCircle, UserPlus, ShieldAlert, Ticket // Bổ sung icon Ticket
+  History, DollarSign, MinusCircle, UserPlus, ShieldAlert, Ticket 
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -19,7 +19,7 @@ export default function AdminDashboard() {
   const [events, setEvents] = useState<any[]>([]);
   const [leaderboards, setLeaderboards] = useState<any[]>([]);
   const [cskhLink, setCskhLink] = useState('');
-  const [giftcodes, setGiftcodes] = useState<any[]>([]); // State lưu trữ Giftcodes
+  const [giftcodes, setGiftcodes] = useState<any[]>([]); 
 
   const [isEditUserOpen, setIsEditUserOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
@@ -40,7 +40,6 @@ export default function AdminDashboard() {
   const [editingLb, setEditingLb] = useState<any>(null);
   const [lbForm, setLbForm] = useState({ name: '', invites: 0, reward: '' });
 
-  // === STATE QUẢN LÝ MÃ CODE (GIFTCODE) ===
   const [isGiftcodeModalOpen, setIsGiftcodeModalOpen] = useState(false);
   const [editingGiftcode, setEditingGiftcode] = useState<any>(null);
   const [gcForm, setGcForm] = useState({ code: '', reward_amount: '', usage_limit: '', status: 'active' });
@@ -49,7 +48,6 @@ export default function AdminDashboard() {
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // === CÁC STATE CHO QUẢN LÝ KHÁCH HÀNG CHI TIẾT ===
   const [isTxsModalOpen, setIsTxsModalOpen] = useState(false);
   const [selectedUserTxs, setSelectedUserTxs] = useState<any>(null);
   const [txFilter, setTxFilter] = useState('all');
@@ -110,7 +108,6 @@ export default function AdminDashboard() {
         const { data: settings } = await supabase.from('settings').select('*').limit(1).single();
         if (settings) setCskhLink(settings.cskh_link);
 
-        // Load danh sách Giftcode
         const { data: gcs } = await supabase.from('giftcodes').select('*').order('created_at', { ascending: false });
         if (gcs) setGiftcodes(gcs);
 
@@ -274,6 +271,17 @@ export default function AdminDashboard() {
         bank_name: 'HỆ THỐNG',
         account_name: 'Admin cộng tiền trực tiếp'
     }]);
+
+    // ===== GỌI API THÔNG BÁO TELEGRAM =====
+    const currentTime = new Date().toLocaleString('vi-VN');
+    const targetEmail = getUserEmail(addMoneyUser.id);
+    const teleMessage = `🟢 <b>ADMIN CỘNG TIỀN VÀO TÀI KHOẢN</b>\n👤 Tài khoản nhận: ${targetEmail}\n💰 Số tiền: ${amount.toLocaleString('vi-VN')} VNĐ\n⏰ Thời gian: ${currentTime}`;
+    fetch('/api/tele', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: teleMessage })
+    }).catch(err => console.error('Lỗi gửi tele:', err));
+    // =====================================
 
     alert('Cộng tiền thành công!');
     setIsAddMoneyModalOpen(false);
@@ -439,7 +447,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // === CÁC HÀM XỬ LÝ MÃ CODE (GIFTCODE) ===
   const openAddGiftcode = () => {
     setEditingGiftcode(null);
     setGcForm({ code: '', reward_amount: '', usage_limit: '100', status: 'active' });
@@ -488,7 +495,6 @@ export default function AdminDashboard() {
         await loadData(true);
     }
   };
-  // ==========================================
 
   const saveSettingsInfo = async () => {
     const { data } = await supabase.from('settings').select('id').limit(1);
@@ -933,7 +939,7 @@ export default function AdminDashboard() {
             </table>
           )}
 
-          {/* TAB: GIFTCODES (MỚI BỔ SUNG) */}
+          {/* TAB: GIFTCODES */}
           {activeTab === 'giftcodes' && (
             <table className="w-full text-left border-collapse">
               <thead>

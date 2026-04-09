@@ -6,7 +6,7 @@ import {
   TrendingUp, Sparkles, CheckCircle2, Info, AlertTriangle, 
   ChevronRight, Activity, LogOut, X, QrCode, Menu, 
   Home, Users, Calendar, Trophy, HeadphonesIcon, Copy, Link as LinkIcon, Package, Gift, Wallet, Clock, Shield, History,
-  CalendarCheck, Dices, PartyPopper, Ticket // Bổ sung Icon Ticket
+  CalendarCheck, Dices, PartyPopper, Ticket 
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
@@ -69,7 +69,6 @@ export default function FintechDashboard() {
   const [passMessage, setPassMessage] = useState<{text: string, type: 'success' | 'error'} | null>(null);
   const [isUpdatingPass, setIsUpdatingPass] = useState(false);
 
-  // === STATE ĐIỂM DANH & VÒNG QUAY ===
   const [checkInStreak, setCheckInStreak] = useState<number>(0);
   const [lastCheckInDate, setLastCheckInDate] = useState<string | null>(null);
   
@@ -80,7 +79,6 @@ export default function FintechDashboard() {
   const [showConfetti, setShowConfetti] = useState<boolean>(false);
   const [prizeMsg, setPrizeMsg] = useState<string | null>(null);
 
-  // === STATE NHẬP CODE (MỚI) ===
   const [giftcode, setGiftcode] = useState<string>('');
   const [giftcodeLoading, setGiftcodeLoading] = useState<boolean>(false);
   const [giftcodeMessage, setGiftcodeMessage] = useState<{text: string, type: 'success' | 'error'} | null>(null);
@@ -154,7 +152,6 @@ export default function FintechDashboard() {
     const { data: eventsData } = await supabase.from('events').select('*').order('created_at', { ascending: false });
     if (eventsData) setEvents(eventsData);
 
-    // Tải danh sách lịch sử nhập code của người dùng
     try {
         const { data: gcHistory } = await supabase
             .from('user_giftcodes')
@@ -187,8 +184,6 @@ export default function FintechDashboard() {
 
   useEffect(() => { loadData(); }, []);
 
-  // === LOGIC XỬ LÝ NHẬP CODE ===
-  // === LOGIC XỬ LÝ NHẬP CODE (ĐÃ FIX LỖI 406) ===
   const handleApplyGiftcode = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!giftcode.trim()) return;
@@ -198,19 +193,17 @@ export default function FintechDashboard() {
     const formattedCode = giftcode.trim().toUpperCase();
 
     try {
-        // 1. Kiểm tra sự tồn tại của Code (Sử dụng maybeSingle để tránh lỗi 406)
         const { data: codeData, error: codeErr } = await supabase
             .from('giftcodes')
             .select('*')
             .eq('code', formattedCode)
-            .maybeSingle(); 
+            .maybeSingle();
 
         if (codeErr) throw new Error('Lỗi kiểm tra mã: ' + codeErr.message);
         if (!codeData) throw new Error('Mã Code này không tồn tại!');
         if (codeData.status !== 'active') throw new Error('Mã Code đã bị khóa hoặc hết hạn!');
         if (codeData.used_count >= codeData.usage_limit) throw new Error('Mã Code này đã hết lượt sử dụng!');
 
-        // 2. Kiểm tra xem User đã từng dùng mã này chưa (Sử dụng maybeSingle để tránh lỗi 406)
         const { data: usedData, error: usedErr } = await supabase
             .from('user_giftcodes')
             .select('*')
@@ -221,23 +214,15 @@ export default function FintechDashboard() {
         if (usedErr) throw new Error('Lỗi kiểm tra lịch sử: ' + usedErr.message);
         if (usedData) throw new Error('Bạn đã sử dụng mã Code này rồi!');
 
-        // 3. Tiến hành cộng thưởng
         const reward = codeData.reward_amount;
         const newBalance = balance + reward;
 
-        // Cập nhật số dư người dùng
         const { error: errUpdateBalance } = await supabase.from('profiles').update({ balance: newBalance }).eq('id', userId);
         if (errUpdateBalance) throw new Error('Có lỗi xảy ra khi cập nhật số dư. Vui lòng thử lại!');
 
-        // Tăng số lượt đã sử dụng của Code lên 1
-        const { error: errUpdateCode } = await supabase.from('giftcodes').update({ used_count: codeData.used_count + 1 }).eq('id', codeData.id);
-        if (errUpdateCode) throw new Error('Có lỗi xảy ra khi trừ lượt mã code!');
+        await supabase.from('giftcodes').update({ used_count: codeData.used_count + 1 }).eq('id', codeData.id);
+        await supabase.from('user_giftcodes').insert({ user_id: userId, code: formattedCode, amount: reward });
 
-        // Lưu lịch sử nhập code của user
-        const { error: errInsertHistory } = await supabase.from('user_giftcodes').insert({ user_id: userId, code: formattedCode, amount: reward });
-        if (errInsertHistory) throw new Error('Có lỗi xảy ra khi ghi nhận lịch sử mã code!');
-
-        // Tạo log giao dịch để xem trong Lịch sử giao dịch chung
         await supabase.from('transactions').insert({
             user_id: userId,
             type: 'nhap_code',
@@ -247,7 +232,6 @@ export default function FintechDashboard() {
             account_name: 'Nhập Giftcode'
         });
 
-        // Cập nhật giao diện lập tức
         setBalance(newBalance);
         setGiftcode('');
         setGiftcodeMessage({ text: `Chúc mừng! Bạn đã nhận được ${reward.toLocaleString('vi-VN')} VNĐ từ mã code.`, type: 'success' });
@@ -444,6 +428,15 @@ export default function FintechDashboard() {
               throw txError;
           }
 
+          // ===== GỌI API THÔNG BÁO TELEGRAM =====
+          const teleMessage = `🔴 <b>YÊU CẦU RÚT TIỀN MỚI</b>\n👤 Tài khoản: ${userEmail}\n💰 Số tiền: ${numAmount.toLocaleString('vi-VN')} VNĐ\n🏦 Ngân hàng: ${bankName || 'Không rõ'} - ${bankAccount || 'Không rõ'}`;
+          fetch('/api/tele', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ message: teleMessage })
+          }).catch(err => console.error('Lỗi gửi tele:', err));
+          // =====================================
+
           alert(`Yêu cầu rút ${numAmount.toLocaleString('vi-VN')} VNĐ đã được gửi. Hệ thống đã trừ số dư!`);
           setBalance(newBalance);
           setIsWithdrawOpen(false); 
@@ -512,7 +505,7 @@ export default function FintechDashboard() {
     { id: 'home', label: 'Trang chủ', icon: Home },
     { id: 'assets', label: 'Tài sản của tôi', icon: Wallet },
     { id: 'packages', label: 'Gói đầu tư', icon: Package },
-    { id: 'giftcode', label: 'Nhập Code', icon: Ticket }, // Bổ sung Tab Nhập Code
+    { id: 'giftcode', label: 'Nhập Code', icon: Ticket }, 
     { id: 'transactions', label: 'Lịch sử giao dịch', icon: History },
     { id: 'referral', label: 'Giới thiệu', icon: Users },
     { id: 'events', label: 'Sự kiện', icon: Calendar },
@@ -920,7 +913,6 @@ export default function FintechDashboard() {
                             <h4 className="text-slate-500 font-medium">{pkg.name}</h4>
                             <div className="my-4">
                                 <span className="text-4xl font-extrabold text-slate-900">{pkg.return_rate}</span>
-                                {/* ĐÃ SỬA TỪ /yr SANG / ngày */}
                                 <span className="text-slate-500 font-medium">/ ngày</span>
                             </div>
                             <div className="space-y-3 mb-6 text-sm">
@@ -940,7 +932,6 @@ export default function FintechDashboard() {
               </div>
             )}
 
-            {/* ================= TAB NHẬP CODE (MỚI BỔ SUNG) ================= */}
             {activeTab === 'giftcode' && (
               <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-300">
                 <h2 className="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-2">
