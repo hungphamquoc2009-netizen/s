@@ -22,14 +22,13 @@ const chartData = [
   { name: 'Jun', actual: 175, expected: 168 },
 ];
 
-// Cấu hình Vòng quay may mắn (Có thể thay đổi tỉ lệ trúng ở weight)
 const WHEEL_PRIZES = [
   { id: 1, label: '1.000đ', value: 1000, weight: 45, color: '#f8fafc' },
   { id: 2, label: '2.000đ', value: 2000, weight: 30, color: '#e2e8f0' },
   { id: 3, label: '5.000đ', value: 5000, weight: 15, color: '#bae6fd' },
   { id: 4, label: '10.000đ', value: 10000, weight: 7, color: '#7dd3fc' },
   { id: 5, label: '50.000đ', value: 50000, weight: 2, color: '#38bdf8' },
-  { id: 6, label: '+1 Lượt', value: -1, weight: 1, color: '#fde047' }, // -1 tương đương phần thưởng thêm lượt
+  { id: 6, label: '+1 Lượt', value: -1, weight: 1, color: '#fde047' }, 
 ];
 
 export default function FintechDashboard() {
@@ -49,6 +48,7 @@ export default function FintechDashboard() {
   const [bankAccount, setBankAccount] = useState<string | null>(null);
   const [bankName, setBankName] = useState<string | null>(null);
   const [accountName, setAccountName] = useState<string | null>(null); 
+  // Biến này không còn quyết định việc rút tiền nữa, giữ lại để tương thích data
   const [hasPurchasedPackage, setHasPurchasedPackage] = useState<boolean>(false);
 
   const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
@@ -70,7 +70,7 @@ export default function FintechDashboard() {
   const [passMessage, setPassMessage] = useState<{text: string, type: 'success' | 'error'} | null>(null);
   const [isUpdatingPass, setIsUpdatingPass] = useState(false);
 
-  // === STATE CHO TÍNH NĂNG MỚI: ĐIỂM DANH & VÒNG QUAY ===
+  // === STATE ĐIỂM DANH & VÒNG QUAY ===
   const [checkInStreak, setCheckInStreak] = useState<number>(0);
   const [lastCheckInDate, setLastCheckInDate] = useState<string | null>(null);
   
@@ -122,7 +122,6 @@ export default function FintechDashboard() {
         setHasPurchasedPackage(profile.has_purchased_package || false);
         if (!session.user.created_at && profile.created_at) setJoinDate(new Date(profile.created_at).toLocaleDateString('vi-VN'));
         
-        // Load data mới
         setCheckInStreak(profile.check_in_streak || 0);
         setLastCheckInDate(profile.last_check_in || null);
         setSpinCount(profile.spin_count || 0);
@@ -151,16 +150,8 @@ export default function FintechDashboard() {
     if (eventsData) setEvents(eventsData);
 
     try {
-      const { data: lbData, error } = await supabase
-        .from('leaderboards')
-        .select('*')
-        .order('invites', { ascending: false });
-
-      if (lbData && lbData.length > 0) {
-        setLeaderboardData(lbData);
-      } else {
-        setLeaderboardData([]);
-      }
+      const { data: lbData } = await supabase.from('leaderboards').select('*').order('invites', { ascending: false });
+      if (lbData) setLeaderboardData(lbData);
     } catch (err) {
       console.error("Lỗi lấy dữ liệu BXH:", err);
     }
@@ -174,17 +165,8 @@ export default function FintechDashboard() {
           const f1List = refsData.filter((r: any) => r.level === 'F1');
           const f2List = refsData.filter((r: any) => r.level === 'F2');
           const f3List = refsData.filter((r: any) => r.level === 'F3');
-          
-          setRefStats({ 
-              f1: f1List.length, 
-              f2: f2List.length, 
-              f3: f3List.length, 
-              total: refsData.length 
-          });
-          
-          const sortedList = [...refsData].sort((a: any, b: any) => 
-              (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0)
-          );
+          setRefStats({ f1: f1List.length, f2: f2List.length, f3: f3List.length, total: refsData.length });
+          const sortedList = [...refsData].sort((a: any, b: any) => (b.created_at ? new Date(b.created_at).getTime() : 0) - (a.created_at ? new Date(a.created_at).getTime() : 0));
           setReferralList(sortedList);
       }
     } catch (err) {}
@@ -192,7 +174,7 @@ export default function FintechDashboard() {
 
   useEffect(() => { loadData(); }, []);
 
-  // === LOGIC TÍNH NĂNG ĐIỂM DANH ===
+  // === ĐÃ SỬA LỖI ĐIỂM DANH ===
   const todayStr = new Date().toLocaleDateString('en-CA'); 
   const isCheckedInToday = lastCheckInDate === todayStr;
 
@@ -204,7 +186,6 @@ export default function FintechDashboard() {
       const yesterdayStr = yesterday.toLocaleDateString('en-CA');
 
       let newStreak = checkInStreak;
-      // Reset chuỗi nếu hôm qua không điểm danh
       if (lastCheckInDate !== yesterdayStr) {
           newStreak = 1;
       } else {
@@ -215,13 +196,12 @@ export default function FintechDashboard() {
       let addedBalance = 0;
       let addedSpin = 0;
 
-      // Xử lý phần thưởng
       if (newStreak === 7) {
           addedSpin = 1;
           rewardMessage = "Điểm danh ngày 7 thành công! Bạn nhận được 1 Lượt quay may mắn.";
-          newStreak = 0; // Reset lại sau khi nhận mốc 7
+          newStreak = 0; 
       } else {
-          addedBalance = 1000; // Thưởng 1,000đ mỗi ngày
+          addedBalance = 1000; 
           rewardMessage = `Điểm danh ngày ${newStreak} thành công! Nhận 1.000 VNĐ.`;
       }
 
@@ -233,12 +213,21 @@ export default function FintechDashboard() {
           if (addedBalance > 0) updates.balance = balance + addedBalance;
           if (addedSpin > 0) updates.spin_count = spinCount + addedSpin;
 
-          await supabase.from('profiles').update(updates).eq('id', userId);
+          // Thực hiện update và check lỗi
+          const { error } = await supabase.from('profiles').update(updates).eq('id', userId);
+          if (error) throw error; // Ném lỗi để log vào khối catch nếu có
 
+          // Cập nhật State trực tiếp trên giao diện để UI nhảy số tiền ngay lập tức
+          setCheckInStreak(newStreak);
+          setLastCheckInDate(todayStr);
+          if (addedBalance > 0) setBalance(prev => prev + addedBalance);
+          if (addedSpin > 0) setSpinCount(prev => prev + addedSpin);
+
+          // Ghi nhận lịch sử giao dịch nếu có thưởng tiền
           if (addedBalance > 0) {
               await supabase.from('transactions').insert({
                   user_id: userId,
-                  type: 'hoa_hong', // Sử dụng type hoa_hong tạm cho phần thưởng điểm danh
+                  type: 'hoa_hong', 
                   amount: addedBalance,
                   status: 'success',
                   bank_name: 'HỆ THỐNG',
@@ -247,13 +236,14 @@ export default function FintechDashboard() {
           }
 
           alert(rewardMessage);
-          loadData();
+          loadData(); // Gọi lại để load lịch sử giao dịch mới
       } catch (err) {
-          alert("Lỗi hệ thống khi điểm danh!");
+          console.error(err);
+          alert("Lỗi hệ thống khi điểm danh! Hãy thử lại.");
       }
   };
 
-  // === LOGIC TÍNH NĂNG VÒNG QUAY MAY MẮN ===
+  // === LOGIC VÒNG QUAY MAY MẮN (Đã tối ưu cập nhật local state) ===
   const handleSpinWheel = async () => {
       if (spinCount <= 0) {
           alert("Bạn đã hết lượt quay! Hãy nạp thêm 60,000đ để nhận 1 lượt quay.");
@@ -265,7 +255,6 @@ export default function FintechDashboard() {
       setShowConfetti(false);
       setPrizeMsg(null);
 
-      // Thuật toán Weight RNG
       const totalWeight = WHEEL_PRIZES.reduce((sum, item) => sum + item.weight, 0);
       let randomNum = Math.random() * totalWeight;
       let selectedPrize = WHEEL_PRIZES[0];
@@ -278,31 +267,24 @@ export default function FintechDashboard() {
           randomNum -= prize.weight;
       }
 
-      // Tính góc quay (360 độ / 6 ô = 60 độ mỗi ô)
-      // Để kim chỉ đúng ô, ta cần tính góc mục tiêu. Giả sử ô số 1 ở đỉnh (0 độ).
       const sliceAngle = 360 / WHEEL_PRIZES.length;
       const targetIndex = WHEEL_PRIZES.findIndex(p => p.id === selectedPrize.id);
-      
-      // Xoay thêm 5 vòng (1800 độ) + góc của ô trúng thưởng + một chút ngẫu nhiên trong phạm vi ô đó
       const randomOffset = Math.floor(Math.random() * (sliceAngle - 10)) - ((sliceAngle - 10) / 2);
       const targetDegree = 1800 + (360 - (targetIndex * sliceAngle)) + randomOffset;
 
       setWheelRotation(prev => prev + targetDegree);
 
-      // Chờ animation hoàn thành (khoảng 4 giây)
       setTimeout(async () => {
           setIsSpinning(false);
           setShowConfetti(true);
           
           let newBalance = balance;
-          let newSpinCount = spinCount - 1; // Trừ 1 lượt quay vừa dùng
+          let newSpinCount = spinCount - 1; 
 
           if (selectedPrize.value === -1) {
-              // Trúng thêm lượt quay
               newSpinCount += 1;
               setPrizeMsg("Tuyệt vời! Bạn quay trúng THÊM 1 LƯỢT QUAY.");
           } else {
-              // Trúng tiền
               newBalance += selectedPrize.value;
               setPrizeMsg(`Chúc mừng! Bạn quay trúng ${selectedPrize.value.toLocaleString('vi-VN')} VNĐ.`);
           }
@@ -311,7 +293,12 @@ export default function FintechDashboard() {
               const updates: any = { spin_count: newSpinCount };
               if (selectedPrize.value !== -1) updates.balance = newBalance;
 
-              await supabase.from('profiles').update(updates).eq('id', userId);
+              const { error } = await supabase.from('profiles').update(updates).eq('id', userId);
+              if (error) throw error;
+
+              // Cập nhật UI ngay lập tức
+              setSpinCount(newSpinCount);
+              if (selectedPrize.value !== -1) setBalance(newBalance);
 
               if (selectedPrize.value !== -1) {
                   await supabase.from('transactions').insert({
@@ -335,9 +322,19 @@ export default function FintechDashboard() {
     window.location.href = '/login';
   };
 
+  // === ĐÃ SỬA LỖI ĐIỀU KIỆN RÚT TIỀN ===
   const handleOpenWithdraw = () => {
-      if (!hasPurchasedPackage) { alert("Bạn cần phải mua ít nhất 1 gói để có thể thực hiện rút tiền!"); return; }
-      if (!bankAccount) { window.location.href = '/lien-ket-ngan-hang'; return; }
+      // FIX LỖI: Kiểm tra trực tiếp chiều dài của mảng myPackages (lịch sử mua gói)
+      // Chắc chắn 100% nếu đã mua gói sẽ cho phép rút tiền.
+      if (myPackages.length === 0) { 
+          alert("Bạn cần phải mua ít nhất 1 gói để có thể thực hiện rút tiền!"); 
+          return; 
+      }
+      
+      if (!bankAccount) { 
+          window.location.href = '/lien-ket-ngan-hang'; 
+          return; 
+      }
       setIsWithdrawOpen(true);
   };
 
@@ -366,6 +363,7 @@ export default function FintechDashboard() {
           });
 
           if (txError) {
+              // Rollback if insert fails
               await supabase.from('profiles').update({ balance: balance }).eq('id', userId);
               throw txError;
           }
@@ -603,7 +601,6 @@ export default function FintechDashboard() {
                               <span className="text-xl font-black text-amber-600">{spinCount}</span>
                           </div>
 
-                          {/* Báo hiệu tiến trình cộng dồn */}
                           <div className="w-full mb-6">
                               <div className="flex justify-between text-xs text-slate-500 font-medium mb-1.5">
                                   <span>Tích lũy nạp: {unconvertedDeposit.toLocaleString()}đ</span>
@@ -615,7 +612,6 @@ export default function FintechDashboard() {
                               <p className="text-[10px] text-slate-400 text-center mt-2 italic">* Cứ mỗi 60k nạp vào hệ thống sẽ được quy đổi thành 1 lượt quay.</p>
                           </div>
 
-                          {/* UI Vòng quay (Sử dụng CSS Conic Gradient) */}
                           <div className="relative w-48 h-48 mb-4">
                               <div 
                                   className="absolute inset-0 rounded-full border-4 border-slate-800 shadow-xl overflow-hidden"
@@ -632,7 +628,6 @@ export default function FintechDashboard() {
                                       transition: 'transform 4s cubic-bezier(0.1, 0.7, 0.1, 1)'
                                   }}
                               >
-                                  {/* Labels (Vẽ cứng tĩnh để dễ quản lý, vì conic là cố định 60 độ mỗi ô) */}
                                   <div className="absolute top-4 left-1/2 -translate-x-1/2 font-bold text-[10px] text-slate-700 origin-bottom" style={{ height: '80px', transform: 'rotate(30deg)' }}>1k</div>
                                   <div className="absolute top-4 left-1/2 -translate-x-1/2 font-bold text-[10px] text-slate-700 origin-bottom" style={{ height: '80px', transform: 'rotate(90deg)' }}>2k</div>
                                   <div className="absolute top-4 left-1/2 -translate-x-1/2 font-bold text-[10px] text-slate-700 origin-bottom" style={{ height: '80px', transform: 'rotate(150deg)' }}>5k</div>
@@ -640,9 +635,7 @@ export default function FintechDashboard() {
                                   <div className="absolute top-4 left-1/2 -translate-x-1/2 font-bold text-[10px] text-slate-700 origin-bottom" style={{ height: '80px', transform: 'rotate(270deg)' }}>50k</div>
                                   <div className="absolute top-4 left-1/2 -translate-x-1/2 font-bold text-[10px] text-slate-700 origin-bottom" style={{ height: '80px', transform: 'rotate(330deg)' }}>+1 Lượt</div>
                               </div>
-                              {/* Kim chỉ */}
                               <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[12px] border-r-[12px] border-t-[20px] border-l-transparent border-r-transparent border-t-rose-500 z-10 drop-shadow-md"></div>
-                              {/* Tâm vòng quay */}
                               <button 
                                   onClick={handleSpinWheel}
                                   disabled={isSpinning || spinCount <= 0}
