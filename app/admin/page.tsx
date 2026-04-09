@@ -2,10 +2,10 @@
 
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-// ĐÃ BỔ SUNG Loader2 VÀO DÒNG IMPORT NÀY:
 import { 
   Users, Activity, CreditCard, Package, LogOut, Check, X, Edit, EyeOff, Plus, ArrowDownToLine, ArrowUpFromLine, Clock, LayoutDashboard,
-  MoreVertical, ChevronUp, ChevronDown, Gift, Trash2, Search, Calendar, Trophy, Settings as SettingsIcon, Image as ImageIcon, UploadCloud, Loader2
+  MoreVertical, ChevronUp, ChevronDown, Gift, Trash2, Search, Calendar, Trophy, Settings as SettingsIcon, Image as ImageIcon, UploadCloud, Loader2,
+  History, DollarSign // Bổ sung icon mới
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -42,6 +42,23 @@ export default function AdminDashboard() {
   const [sortConfig, setSortConfig] = useState<{ key: 'totalDeposit' | 'totalWithdrawal', direction: 'asc' | 'desc' } | null>(null);
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // === TÍNH NĂNG MỚI: CÁC STATE CHO QUẢN LÝ KHÁCH HÀNG CHI TIẾT ===
+  // 1. Xem LSGD
+  const [isTxsModalOpen, setIsTxsModalOpen] = useState(false);
+  const [selectedUserTxs, setSelectedUserTxs] = useState<any>(null);
+
+  // 2. Quản lý gói khách
+  const [isManagePkgModalOpen, setIsManagePkgModalOpen] = useState(false);
+  const [managePkgUser, setManagePkgUser] = useState<any>(null);
+  const [selectedNewPkgId, setSelectedNewPkgId] = useState('');
+  const [newPkgAmount, setNewPkgAmount] = useState('');
+
+  // 3. Cộng tiền
+  const [isAddMoneyModalOpen, setIsAddMoneyModalOpen] = useState(false);
+  const [addMoneyUser, setAddMoneyUser] = useState<any>(null);
+  const [addMoneyAmount, setAddMoneyAmount] = useState('');
+  // ===============================================================
 
   const getBankCode = (fullName: string) => {
     if (!fullName) return '';
@@ -174,6 +191,82 @@ export default function AdminDashboard() {
     setIsEditUserOpen(false);
     await loadData(true);
   };
+
+  // === TÍNH NĂNG MỚI: HÀM XỬ LÝ KHÁCH HÀNG (LSGD, THÊM GÓI, CỘNG TIỀN) ===
+  const openUserTxs = (user: any) => {
+    setSelectedUserTxs(user);
+    setIsTxsModalOpen(true);
+  };
+
+  const openManageUserPackages = (user: any) => {
+    setManagePkgUser(user);
+    setSelectedNewPkgId('');
+    setNewPkgAmount('');
+    setIsManagePkgModalOpen(true);
+  };
+
+  const handleAddPackageToUser = async () => {
+    if (!selectedNewPkgId || !newPkgAmount) return alert('Vui lòng chọn gói và nhập số tiền đầu tư!');
+    const pkg = packages.find(p => p.id === selectedNewPkgId);
+    if (!pkg) return;
+
+    if (!confirm(`Xác nhận thêm gói "${pkg.name}" cho khách hàng này?`)) return;
+
+    const { error } = await supabase.from('user_packages').insert([{
+        user_id: managePkgUser.id,
+        package_id: pkg.id,
+        package_name: pkg.name,
+        invested_amount: parseInt(newPkgAmount),
+        status: 'active',
+        purchased_at: new Date().toISOString()
+    }]);
+
+    if (error) return alert('Lỗi thêm gói: ' + error.message);
+    alert('Thêm gói thành công!');
+    setNewPkgAmount('');
+    await loadData(true);
+  };
+
+  const handleRemovePackageFromUser = async (uPkgId: string) => {
+    if (!confirm('Bạn có chắc chắn muốn xóa gói đầu tư này của khách? (Sẽ không hoàn tiền tự động)')) return;
+    const { error } = await supabase.from('user_packages').delete().eq('id', uPkgId);
+    if (error) return alert('Lỗi xóa gói: ' + error.message);
+    alert('Đã xóa gói thành công!');
+    await loadData(true);
+  };
+
+  const openAddMoney = (user: any) => {
+    setAddMoneyUser(user);
+    setAddMoneyAmount('');
+    setIsAddMoneyModalOpen(true);
+  };
+
+  const handleAddMoney = async () => {
+    const amount = parseInt(addMoneyAmount);
+    if (isNaN(amount) || amount <= 0) return alert('Số tiền không hợp lệ');
+
+    if (!confirm(`Xác nhận cộng ${amount.toLocaleString('vi-VN')} VNĐ vào tài khoản khách hàng này?`)) return;
+
+    // Cập nhật số dư
+    const newBalance = (addMoneyUser.balance || 0) + amount;
+    const { error: err1 } = await supabase.from('profiles').update({ balance: newBalance }).eq('id', addMoneyUser.id);
+    if (err1) return alert('Lỗi cập nhật số dư: ' + err1.message);
+
+    // Ghi nhận lịch sử giao dịch (Giả lập nạp tiền từ hệ thống)
+    await supabase.from('transactions').insert([{
+        user_id: addMoneyUser.id,
+        type: 'nap_tien',
+        amount: amount,
+        status: 'success',
+        bank_name: 'HỆ THỐNG',
+        account_name: 'Admin cộng tiền trực tiếp'
+    }]);
+
+    alert('Cộng tiền thành công!');
+    setIsAddMoneyModalOpen(false);
+    await loadData(true);
+  };
+  // ======================================================================
 
   const openAddPackage = () => {
     setEditingPackage(null);
@@ -328,12 +421,38 @@ export default function AdminDashboard() {
       }
   });
 
+  // === TÍNH NĂNG MỚI: TÍNH TOÁN THỐNG KÊ NGƯỜI CHƠI THEO GÓI ===
+  let usersBoughtAllTime = new Set();
+  let usersBoughtToday = new Set();
+
   userPackages.forEach(pkg => {
       const pkgDate = new Date(pkg.purchased_at || pkg.created_at);
+      usersBoughtAllTime.add(pkg.user_id);
+      
       const isToday = pkgDate >= today;
+      if (isToday) {
+          usersBoughtToday.add(pkg.user_id);
+      }
+
       totalDeposits += pkg.invested_amount || 0;
       if (isToday) todayDeposits += pkg.invested_amount || 0;
   });
+
+  const totalUsersBoughtAllTime = usersBoughtAllTime.size;
+  const totalUsersBoughtToday = usersBoughtToday.size;
+  const totalUsersNotBoughtAllTime = users.length - totalUsersBoughtAllTime;
+  
+  // Chưa mua (Hôm nay): Những người đăng ký tài khoản hôm nay nhưng chưa mua gói nào
+  let totalUsersNotBoughtToday = 0;
+  users.forEach(u => {
+      const uDate = new Date(u.created_at);
+      if (uDate >= today) {
+          if (!usersBoughtAllTime.has(u.id)) {
+              totalUsersNotBoughtToday++;
+          }
+      }
+  });
+  // ===============================================================
 
   const handleSort = (key: 'totalDeposit' | 'totalWithdrawal') => {
     let direction: 'asc' | 'desc' = 'desc';
@@ -455,6 +574,7 @@ export default function AdminDashboard() {
 
         {/* TAB: OVERVIEW */}
         {activeTab === 'overview' && (
+            <>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
                     <p className="text-sm font-bold text-slate-500 uppercase">Khách Nạp Hôm Nay</p>
@@ -473,6 +593,45 @@ export default function AdminDashboard() {
                     <h3 className="text-2xl font-black text-rose-600 mt-2">-{totalWithdrawals.toLocaleString('vi-VN')} ₫</h3>
                 </div>
             </div>
+
+            {/* BLOCK THỐNG KÊ NGƯỜI CHƠI (TÍNH NĂNG MỚI BỔ SUNG) */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mt-6 mb-6">
+                <h3 className="font-bold text-lg text-slate-800 mb-4 flex items-center gap-2">
+                    <Users className="w-5 h-5 text-blue-600" /> Thống kê Khách hàng
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Nhóm Đã mua gói */}
+                    <div className="border border-emerald-100 bg-emerald-50/30 rounded-xl p-5">
+                        <p className="font-bold text-emerald-700 mb-3 text-center uppercase tracking-wide">Khách Đã Mua Gói</p>
+                        <div className="flex justify-between items-center text-sm">
+                            <div className="text-center w-1/2 border-r border-emerald-200/50">
+                                <div className="text-slate-500 mb-1">Hôm nay</div>
+                                <div className="font-black text-2xl text-emerald-600">{totalUsersBoughtToday}</div>
+                            </div>
+                            <div className="text-center w-1/2">
+                                <div className="text-slate-500 mb-1">Tất cả thời gian</div>
+                                <div className="font-black text-2xl text-emerald-600">{totalUsersBoughtAllTime}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Nhóm Chưa mua gói */}
+                    <div className="border border-slate-200 bg-slate-50/50 rounded-xl p-5">
+                        <p className="font-bold text-slate-700 mb-3 text-center uppercase tracking-wide">Khách Chưa Mua Gói</p>
+                        <div className="flex justify-between items-center text-sm">
+                            <div className="text-center w-1/2 border-r border-slate-200">
+                                <div className="text-slate-500 mb-1">Hôm nay (Tài khoản mới)</div>
+                                <div className="font-black text-2xl text-slate-600">{totalUsersNotBoughtToday}</div>
+                            </div>
+                            <div className="text-center w-1/2">
+                                <div className="text-slate-500 mb-1">Tất cả thời gian</div>
+                                <div className="font-black text-2xl text-slate-600">{totalUsersNotBoughtAllTime}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            </>
         )}
 
         {/* TABLES AREA */}
@@ -540,16 +699,24 @@ export default function AdminDashboard() {
                               <MoreVertical className="w-5 h-5" />
                           </button>
 
+                          {/* MENU CHỨC NĂNG (BỔ SUNG MỚI) */}
                           {openDropdownId === u.id && (
                               <>
                                   <div className="fixed inset-0 z-10" onClick={() => setOpenDropdownId(null)}></div>
-                                  <div className="absolute right-8 top-10 w-56 bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden py-1">
+                                  <div className="absolute right-8 top-10 w-60 bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden py-1">
                                       <button onClick={() => { openEditUser(u); setOpenDropdownId(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex items-center gap-3 text-slate-700 font-medium transition-colors">
-                                          <Edit className="w-4 h-4 text-slate-400"/> Sửa thông tin tài khoản
+                                          <Edit className="w-4 h-4 text-slate-400"/> Sửa thông tin NH
                                       </button>
                                       <div className="h-px bg-slate-100 my-1"></div>
-                                      <button onClick={() => { alert('Tính năng tặng gói'); setOpenDropdownId(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-blue-50 flex items-center gap-3 text-blue-600 font-medium transition-colors">
-                                          <Gift className="w-4 h-4"/> Tặng gói thủ công
+                                      <button onClick={() => { openUserTxs(u); setOpenDropdownId(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex items-center gap-3 text-slate-700 font-medium transition-colors">
+                                          <History className="w-4 h-4 text-slate-400"/> Xem lịch sử giao dịch
+                                      </button>
+                                      <button onClick={() => { openManageUserPackages(u); setOpenDropdownId(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 flex items-center gap-3 text-slate-700 font-medium transition-colors">
+                                          <Package className="w-4 h-4 text-slate-400"/> Quản lý gói (Thêm/Xóa)
+                                      </button>
+                                      <div className="h-px bg-slate-100 my-1"></div>
+                                      <button onClick={() => { openAddMoney(u); setOpenDropdownId(null); }} className="w-full text-left px-4 py-2.5 text-sm hover:bg-emerald-50 flex items-center gap-3 text-emerald-600 font-bold transition-colors">
+                                          <DollarSign className="w-4 h-4"/> Cộng tiền vào TK
                                       </button>
                                   </div>
                               </>
@@ -562,6 +729,7 @@ export default function AdminDashboard() {
             </>
           )}
 
+          {/* CÁC TABS KHÁC GIỮ NGUYÊN */}
           {/* TAB: PACKAGES */}
           {activeTab === 'packages' && (
             <table className="w-full text-left border-collapse">
@@ -842,7 +1010,7 @@ export default function AdminDashboard() {
 
       </div>
 
-      {/* POPUP: EDIT USER BANK CÓ THÊM TÊN CHỦ TÀI KHOẢN */}
+      {/* TẤT CẢ CÁC MODALS TRƯỚC ĐÓ (Edit User, Add Package, Add Event...) GIỮ NGUYÊN */}
       {isEditUserOpen && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl relative">
@@ -867,7 +1035,6 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* POPUP: ADD/EDIT PACKAGE */}
       {isPackageModalOpen && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl relative">
@@ -900,7 +1067,6 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* POPUP: ADD/EDIT EVENT KÈM UPLOAD ẢNH */}
       {isEventModalOpen && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl relative max-h-[90vh] overflow-y-auto">
@@ -908,10 +1074,8 @@ export default function AdminDashboard() {
                 <h3 className="font-bold text-xl text-slate-900 mb-6">{editingEvent ? 'Chỉnh sửa Sự kiện' : 'Thêm Sự kiện Mới'}</h3>
                 
                 <div className="space-y-4 mb-8">
-                    {/* Phần Upload Ảnh */}
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-2">Ảnh Sự kiện (Tùy chọn)</label>
-                        
                         <div className="flex items-center gap-4">
                             {eventForm.image_url ? (
                                 <div className="relative">
@@ -963,7 +1127,6 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* POPUP: ADD/EDIT LEADERBOARD */}
       {isLbModalOpen && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl relative">
@@ -984,6 +1147,172 @@ export default function AdminDashboard() {
                     </div>
                 </div>
                 <button onClick={saveLbInfo} className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 transition-all">{editingLb ? 'Lưu Thay Đổi' : 'Thêm Vào Bảng'}</button>
+            </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* CÁC MODALS MỚI BỔ SUNG CHO TÍNH NĂNG QUẢN LÝ KHÁCH HÀNG */}
+      {/* ========================================================= */}
+
+      {/* 1. Modal Xem LSGD */}
+      {isTxsModalOpen && selectedUserTxs && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white p-6 rounded-2xl w-full max-w-2xl shadow-2xl relative max-h-[90vh] overflow-hidden flex flex-col">
+                <button onClick={() => setIsTxsModalOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"><X className="w-6 h-6" /></button>
+                <h3 className="font-bold text-xl text-slate-900 mb-1">Lịch sử giao dịch</h3>
+                <p className="text-sm text-slate-500 mb-4 border-b border-slate-200 pb-4">Tài khoản: <span className="font-bold text-blue-600">{getUserEmail(selectedUserTxs.id)}</span></p>
+                
+                <div className="flex-1 overflow-y-auto pr-2">
+                    {/* Bảng Nạp (Mua gói) */}
+                    <h4 className="font-bold text-slate-700 mb-2 text-sm flex items-center gap-2"><ArrowDownToLine className="w-4 h-4 text-emerald-500"/> Lịch sử Nạp/Mua gói</h4>
+                    <div className="bg-slate-50 rounded-xl border border-slate-200 mb-6 overflow-hidden">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-slate-100 border-b border-slate-200 text-slate-500">
+                                <tr>
+                                    <th className="p-3 font-semibold">Thời gian</th>
+                                    <th className="p-3 font-semibold">Gói</th>
+                                    <th className="p-3 font-semibold text-right">Số tiền (VNĐ)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {userPackages.filter(p => p.user_id === selectedUserTxs.id).length === 0 ? (
+                                    <tr><td colSpan={3} className="p-4 text-center text-slate-500">Chưa có giao dịch nạp.</td></tr>
+                                ) : (
+                                    userPackages.filter(p => p.user_id === selectedUserTxs.id).map(p => (
+                                        <tr key={p.id} className="border-b border-slate-100">
+                                            <td className="p-3 text-slate-600">{new Date(p.purchased_at || p.created_at).toLocaleString('vi-VN')}</td>
+                                            <td className="p-3 font-medium text-slate-700">{p.package_name}</td>
+                                            <td className="p-3 font-bold text-emerald-600 text-right">+{p.invested_amount?.toLocaleString('vi-VN')}</td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Bảng Rút tiền */}
+                    <h4 className="font-bold text-slate-700 mb-2 text-sm flex items-center gap-2"><ArrowUpFromLine className="w-4 h-4 text-rose-500"/> Lịch sử Rút tiền</h4>
+                    <div className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-slate-100 border-b border-slate-200 text-slate-500">
+                                <tr>
+                                    <th className="p-3 font-semibold">Thời gian</th>
+                                    <th className="p-3 font-semibold">Trạng thái</th>
+                                    <th className="p-3 font-semibold text-right">Số tiền (VNĐ)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {transactions.filter(t => t.user_id === selectedUserTxs.id && t.type === 'rut_tien').length === 0 ? (
+                                    <tr><td colSpan={3} className="p-4 text-center text-slate-500">Chưa có giao dịch rút.</td></tr>
+                                ) : (
+                                    transactions.filter(t => t.user_id === selectedUserTxs.id && t.type === 'rut_tien').map(t => (
+                                        <tr key={t.id} className="border-b border-slate-100">
+                                            <td className="p-3 text-slate-600">{new Date(t.created_at).toLocaleString('vi-VN')}</td>
+                                            <td className="p-3">
+                                                <span className={`text-xs font-bold ${t.status === 'success' ? 'text-emerald-600' : t.status === 'rejected' ? 'text-rose-600' : t.status === 'pending' ? 'text-amber-600' : 'text-slate-500'}`}>
+                                                    {t.status === 'success' ? 'Thành công' : t.status === 'pending' ? 'Chờ duyệt' : t.status === 'rejected' ? 'Từ chối' : 'Treo'}
+                                                </span>
+                                            </td>
+                                            <td className="p-3 font-bold text-rose-600 text-right">-{t.amount?.toLocaleString('vi-VN')}</td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* 2. Modal Quản lý Gói của Khách */}
+      {isManagePkgModalOpen && managePkgUser && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white p-6 rounded-2xl w-full max-w-xl shadow-2xl relative max-h-[90vh] overflow-y-auto">
+                <button onClick={() => setIsManagePkgModalOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"><X className="w-6 h-6" /></button>
+                <h3 className="font-bold text-xl text-slate-900 mb-1">Quản lý Gói Đầu Tư</h3>
+                <p className="text-sm text-slate-500 mb-6 border-b border-slate-200 pb-4">Tài khoản: <span className="font-bold text-blue-600">{getUserEmail(managePkgUser.id)}</span></p>
+
+                {/* Danh sách gói hiện tại */}
+                <h4 className="font-bold text-slate-700 mb-3 text-sm">Gói khách đang có:</h4>
+                <div className="space-y-3 mb-8">
+                    {userPackages.filter(p => p.user_id === managePkgUser.id).length === 0 ? (
+                        <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-center text-slate-500 text-sm">Khách hàng chưa có gói nào.</div>
+                    ) : (
+                        userPackages.filter(p => p.user_id === managePkgUser.id).map(p => (
+                            <div key={p.id} className="flex items-center justify-between p-3 border border-slate-200 rounded-xl bg-slate-50">
+                                <div>
+                                    <div className="font-bold text-slate-800">{p.package_name}</div>
+                                    <div className="text-xs text-slate-500">Vốn: {p.invested_amount?.toLocaleString('vi-VN')} VNĐ • Mua lúc: {new Date(p.purchased_at || p.created_at).toLocaleDateString('vi-VN')}</div>
+                                </div>
+                                <button onClick={() => handleRemovePackageFromUser(p.id)} className="p-2 text-rose-500 hover:bg-rose-100 rounded-lg transition-colors" title="Xóa gói này">
+                                    <Trash2 className="w-5 h-5" />
+                                </button>
+                            </div>
+                        ))
+                    )}
+                </div>
+
+                {/* Form thêm gói mới */}
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-5">
+                    <h4 className="font-bold text-blue-800 mb-4 flex items-center gap-2"><Plus className="w-4 h-4"/> Thêm gói mới cho khách</h4>
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-xs font-bold text-blue-800 mb-1">Chọn gói hệ thống</label>
+                            <select value={selectedNewPkgId} onChange={(e) => setSelectedNewPkgId(e.target.value)} className="w-full border border-blue-200 bg-white rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                                <option value="">-- Chọn Gói --</option>
+                                {packages.map(pkg => (
+                                    <option key={pkg.id} value={pkg.id}>{pkg.name} ({pkg.limits})</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-blue-800 mb-1">Số tiền đầu tư thực tế (VNĐ)</label>
+                            <input 
+                                type="number" 
+                                placeholder="VD: 50000000" 
+                                value={newPkgAmount} 
+                                onChange={(e) => setNewPkgAmount(e.target.value)} 
+                                className="w-full border border-blue-200 bg-white rounded-lg p-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                            />
+                        </div>
+                        <button onClick={handleAddPackageToUser} className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors text-sm">
+                            Xác Nhận Thêm Gói
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* 3. Modal Cộng tiền */}
+      {isAddMoneyModalOpen && addMoneyUser && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl relative">
+                <button onClick={() => setIsAddMoneyModalOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-700"><X className="w-6 h-6" /></button>
+                <h3 className="font-bold text-xl text-slate-900 mb-1 flex items-center gap-2">
+                    <DollarSign className="w-6 h-6 text-emerald-600" /> Cộng tiền
+                </h3>
+                <p className="text-sm text-slate-500 mb-6">Tài khoản: <span className="font-bold text-blue-600">{getUserEmail(addMoneyUser.id)}</span></p>
+
+                <div className="mb-2">
+                    <label className="block text-sm font-bold text-slate-700 mb-2">Số tiền muốn cộng (VNĐ)</label>
+                    <input 
+                        type="number" 
+                        placeholder="VD: 1000000" 
+                        value={addMoneyAmount} 
+                        onChange={e => setAddMoneyAmount(e.target.value)} 
+                        className="w-full border border-slate-200 bg-slate-50 focus:bg-white rounded-xl p-4 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-bold text-lg text-emerald-600" 
+                    />
+                </div>
+                <div className="mb-6 text-xs text-slate-500">
+                    * Hành động này sẽ cộng trực tiếp tiền vào số dư của khách hàng và ghi nhận 1 giao dịch "Nạp tiền" thành công vào lịch sử.
+                </div>
+                
+                <button onClick={handleAddMoney} className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition-all">
+                    Xác Nhận Cộng
+                </button>
             </div>
         </div>
       )}
