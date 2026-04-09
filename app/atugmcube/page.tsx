@@ -108,7 +108,6 @@ export default function AdminDashboard() {
             setPackages(sortedPkgs);
         }
 
-        // === CHỈ SỬA ĐÚNG CHỖ NÀY: THÊM LỆNH .eq('status', 'active') ĐỂ LỌC GÓI PENDING ===
         const { data: uPkgs } = await supabase
             .from('user_packages')
             .select('*')
@@ -239,6 +238,7 @@ export default function AdminDashboard() {
     setIsManagePkgModalOpen(true);
   };
 
+  // === FIX LỖI THÊM GÓI Ở ĐÂY ===
   const handleAddPackageToUser = async () => {
     if (!selectedNewPkgId || !newPkgAmount) return alert('Vui lòng chọn gói và nhập số tiền đầu tư!');
     const pkg = packages.find(p => p.id === selectedNewPkgId);
@@ -246,13 +246,23 @@ export default function AdminDashboard() {
 
     if (!confirm(`Xác nhận thêm gói "${pkg.name}" cho khách hàng này?`)) return;
 
+    // Tính toán lãi suất hàng ngày để truyền vào Database
+    let currentDailyRate = 0;
+    if (pkg.return_rate) {
+        const rateMatch = pkg.return_rate.match(/\d+/);
+        const yearlyRate = rateMatch ? parseInt(rateMatch[0], 10) : 0;
+        currentDailyRate = yearlyRate / 365 / 100;
+    }
+
     const { error } = await supabase.from('user_packages').insert([{
         user_id: managePkgUser.id,
         package_id: pkg.id,
         package_name: pkg.name,
         invested_amount: parseInt(newPkgAmount),
+        daily_interest_rate: currentDailyRate, // Đã bổ sung cột bắt buộc này
         status: 'active',
-        purchased_at: new Date().toISOString()
+        purchased_at: new Date().toISOString(),
+        transfer_content: 'ADMIN_ADD' // Truyền nội dung ảo tránh lỗi
     }]);
 
     if (error) return alert('Lỗi thêm gói: ' + error.message);
@@ -260,6 +270,7 @@ export default function AdminDashboard() {
     setNewPkgAmount('');
     await loadData(true);
   };
+  // ==================================
 
   const handleRemovePackageFromUser = async (uPkgId: string) => {
     if (!confirm('Bạn có chắc chắn muốn xóa gói đầu tư này của khách? (Sẽ không hoàn tiền tự động)')) return;
@@ -1167,7 +1178,6 @@ export default function AdminDashboard() {
                           <button onClick={() => handleApproveWithdrawal(t)} title="Duyệt thành công" className="flex items-center gap-1 px-3 py-2 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 font-bold transition-colors">
                               <Check className="w-4 h-4" /> Duyệt
                           </button>
-                          {/* SỬA TRUYỀN TOÀN BỘ OBJECT t VÀO ĐÂY */}
                           <button onClick={() => handleRejectWithdrawal(t)} title="Từ chối lệnh" className="flex items-center gap-1 px-3 py-2 bg-rose-100 text-rose-700 rounded-lg hover:bg-rose-200 font-bold transition-colors">
                               <X className="w-4 h-4" /> Từ chối
                           </button>
