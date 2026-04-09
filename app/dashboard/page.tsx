@@ -453,7 +453,7 @@ export default function FintechDashboard() {
   };
 
   const copyReferralLink = () => {
-    navigator.clipboard.writeText(`https://finvest.fun/r/${userId}`);
+    navigator.clipboard.writeText(`https://finvest.fun/register?ref=${userId}`);
     setIsCopied(true); setTimeout(() => setIsCopied(false), 2000);
   };
 
