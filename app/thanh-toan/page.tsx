@@ -21,7 +21,7 @@ function PaymentContent() {
   const [isCopied, setIsCopied] = useState<Record<string, boolean>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Thông tin thanh toán cố định
+  // Thông tin thanh toán cố định (BẠN CÓ THỂ SỬA LẠI TÊN VÀ STK CỦA BẠN NẾU CẦN)
   const BANK_NAME = "VPBank";
   const ACCOUNT_NUMBER = "6869558386";
   const ACCOUNT_NAME = "HOANG QUOC VIET";
@@ -43,6 +43,7 @@ function PaymentContent() {
       setUserName(name);
       setUserId(session.user.id);
       
+      // MẤU CHỐT CHỐNG DUYỆT NHẦM: TẠO 5 SỐ NGẪU NHIÊN ĐỘC NHẤT
       const randomCode = Math.floor(10000 + Math.random() * 90000);
       const safePackageName = packageName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
 
@@ -74,15 +75,14 @@ function PaymentContent() {
         }
       }
 
-      // === PHẦN BỔ SUNG: ĐĂNG KÝ ĐƠN HÀNG PENDING ĐỂ AUTO KHI TẮT WEB ===
-      // Việc này giúp Server/Cronjob biết có một đơn hàng đang chờ để tự duyệt mà không cần bạn mở web
+      // ĐĂNG KÝ ĐƠN HÀNG PENDING VÀO DATABASE
       await supabase.from('user_packages').insert({
         user_id: session.user.id,
         package_name: packageName,
         invested_amount: currentPrice,
         daily_interest_rate: currentDailyRate,
-        status: 'pending', // Trạng thái chờ xử lý
-        transfer_content: content // Lưu lại để đối soát tự động
+        status: 'pending', 
+        transfer_content: content 
       });
 
       setIsLoading(false);
@@ -114,6 +114,7 @@ function PaymentContent() {
         else if (data.transactions && Array.isArray(data.transactions)) transactionsArray = data.transactions;
         else if (data.records && Array.isArray(data.records)) transactionsArray = data.records;
 
+        // TÌM GIAO DỊCH KHỚP VỚI MÃ CÓ 5 SỐ NGẪU NHIÊN
         const matchedTx = transactionsArray.find((tx: any) => {
             const txString = JSON.stringify(tx).toLowerCase();
             return txString.includes(targetContent);
@@ -121,7 +122,6 @@ function PaymentContent() {
 
         if (matchedTx) {
           clearInterval(intervalId); 
-          document.removeEventListener('visibilitychange', handleVisibilityChange);
           
           const paidAmount = Number(matchedTx.amount || matchedTx.creditAmount || matchedTx.sotien || matchedTx.tien || 0);
 
@@ -131,15 +131,7 @@ function PaymentContent() {
             .update({ has_purchased_package: true })
             .eq('id', userId);
 
-          // Chia hoa hồng
-          if (paidAmount > 0) {
-              await supabase.rpc('distribute_commission', { 
-                  p_buyer_id: userId, 
-                  p_amount: paidAmount 
-              });
-          }
-
-          // Cập nhật gói từ 'pending' sang 'active'
+          // Kích hoạt gói từ pending -> active
           if (paidAmount > 0) {
               await supabase
                 .from('user_packages')
@@ -149,9 +141,15 @@ function PaymentContent() {
                 })
                 .eq('user_id', userId)
                 .eq('transfer_content', transferContent);
+                
+              // Chia hoa hồng
+              await supabase.rpc('distribute_commission', { 
+                  p_buyer_id: userId, 
+                  p_amount: paidAmount 
+              });
           }
 
-          // BỎ ALERT - CHUYỂN HƯỚNG THẲNG
+          // KHI THÀNH CÔNG, NGAY LẬP TỨC ĐÁ VỀ TRANG DASHBOARD
           window.location.href = '/dashboard';
         }
       } catch (error) {
@@ -161,21 +159,13 @@ function PaymentContent() {
       }
     };
 
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        checkPaymentStatus();
-      }
-    };
-
     checkPaymentStatus();
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    intervalId = setInterval(checkPaymentStatus, 5000);
+    intervalId = setInterval(checkPaymentStatus, 5000); // Quét 5 giây/lần
 
     return () => {
       if (intervalId) clearInterval(intervalId);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [transferContent, userId, packageName, dailyRate]);
+  }, [transferContent, userId]);
 
   // Hàm xử lý copy
   const handleCopy = (text: string, field: string) => {
