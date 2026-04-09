@@ -161,20 +161,25 @@ export default function AdminDashboard() {
   const handleApproveWithdrawal = async (tx: any) => {
     if (!confirm(`Xác nhận DUYỆT lệnh rút ${tx.amount.toLocaleString()} VND?`)) return;
     
-    const userToUpdate = users.find(u => u.id === tx.user_id);
-    if (userToUpdate) {
-        const newBalance = userToUpdate.balance - tx.amount;
-        await supabase.from('profiles').update({ balance: newBalance }).eq('id', tx.user_id);
-    }
+    // Lưu ý: Rút tiền duyệt thì KHÔNG hoàn lại balance (vì đã trừ lúc tạo lệnh rồi)
     await supabase.from('transactions').update({ status: 'success' }).eq('id', tx.id);
     alert('Đã duyệt thành công!');
     await loadData(true);
   };
 
-  const handleRejectWithdrawal = async (id: string) => {
-    if (!confirm('Bạn có chắc chắn muốn TỪ CHỐI lệnh rút này?')) return;
-    await supabase.from('transactions').update({ status: 'rejected' }).eq('id', id);
-    alert('Đã từ chối lệnh rút!');
+  const handleRejectWithdrawal = async (tx: any) => {
+    if (!confirm('Bạn có chắc chắn muốn TỪ CHỐI lệnh rút này và hoàn tiền lại cho khách?')) return;
+    
+    // 1. Hoàn lại tiền cho user (vì lúc tạo lệnh rút frontend đã trừ đi rồi)
+    const userToUpdate = users.find(u => u.id === tx.user_id);
+    if (userToUpdate) {
+        const newBalance = (userToUpdate.balance || 0) + tx.amount;
+        await supabase.from('profiles').update({ balance: newBalance }).eq('id', tx.user_id);
+    }
+    
+    // 2. Đổi trạng thái giao dịch thành rejected
+    await supabase.from('transactions').update({ status: 'rejected' }).eq('id', tx.id);
+    alert('Đã từ chối lệnh rút và hoàn lại số dư!');
     await loadData(true);
   };
 
@@ -1118,7 +1123,8 @@ export default function AdminDashboard() {
                           <button onClick={() => handleApproveWithdrawal(t)} title="Duyệt thành công" className="flex items-center gap-1 px-3 py-2 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 font-bold transition-colors">
                               <Check className="w-4 h-4" /> Duyệt
                           </button>
-                          <button onClick={() => handleRejectWithdrawal(t.id)} title="Từ chối lệnh" className="flex items-center gap-1 px-3 py-2 bg-rose-100 text-rose-700 rounded-lg hover:bg-rose-200 font-bold transition-colors">
+                          {/* SỬA TRUYỀN TOÀN BỘ OBJECT t VÀO ĐÂY */}
+                          <button onClick={() => handleRejectWithdrawal(t)} title="Từ chối lệnh" className="flex items-center gap-1 px-3 py-2 bg-rose-100 text-rose-700 rounded-lg hover:bg-rose-200 font-bold transition-colors">
                               <X className="w-4 h-4" /> Từ chối
                           </button>
                           <button onClick={() => handleSuspendWithdrawal(t.id)} title="Treo lệnh (Ẩn đi)" className="flex items-center gap-1 px-3 py-2 bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 font-bold transition-colors">

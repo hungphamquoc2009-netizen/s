@@ -754,7 +754,7 @@ export default function FintechDashboard() {
                                     {tx.type === 'nap_tien' ? 'Nạp tiền' : tx.type === 'trung_thuong' ? 'Trúng thưởng vòng quay' : tx.type === 'hoa_hong' ? 'Thưởng/Hoa hồng' : tx.type === 'nhan_lai' ? 'Nhận lãi đầu tư' : tx.type === 'nhap_code' ? 'Nhập Code' : 'Rút tiền'}
                                 </p>
                                 <p className="text-xs text-slate-400 mt-0.5">
-                                    {new Date(tx.created_at).toLocaleDateString('vi-VN')} - <span className={`font-semibold ${tx.status === 'pending' ? 'text-amber-500' : 'text-emerald-500'}`}>{tx.status === 'pending' ? 'Đang xử lý' : 'Thành công'}</span>
+                                    {new Date(tx.created_at).toLocaleDateString('vi-VN')} - <span className={`font-semibold ${tx.status === 'success' ? 'text-emerald-500' : tx.status === 'rejected' ? 'text-rose-500' : 'text-amber-500'}`}>{tx.status === 'success' ? 'Thành công' : tx.status === 'rejected' ? 'Bị từ chối' : 'Đang xử lý'}</span>
                                 </p>
                               </div>
                             </div>
