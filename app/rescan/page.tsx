@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Loader2, RefreshCcw, CheckCircle2, AlertTriangle, ShieldCheck, History } from 'lucide-react';
+import { Loader2, RefreshCcw, CheckCircle2, AlertTriangle, ShieldCheck, History, Search, Check } from 'lucide-react';
 
 export default function RescanPayments() {
     const [isProcessing, setIsProcessing] = useState(false);
+    const [pendingOrders, setPendingOrders] = useState<any[]>([]);
     const [results, setResults] = useState<{msg: string, type: 'success' | 'error' | 'info'}[]>([]);
     const API_BANK = "https://thueapibank.vn/historyapivpbankneov2/d33a5cde4962560a0138920f20d550df";
 
@@ -13,139 +14,157 @@ export default function RescanPayments() {
         setResults(prev => [{ msg, type }, ...prev]);
     };
 
+    // Tải danh sách đơn pending khi vào trang
+    const loadPending = async () => {
+        const { data } = await supabase.from('user_packages').select('*').eq('status', 'pending').order('purchased_at', { ascending: false });
+        if (data) setPendingOrders(data);
+    };
+
+    useEffect(() => { loadPending(); }, []);
+
+    // HÀM 1: QUÉT TỰ ĐỘNG THEO NGÂN HÀNG
     const handleRescan = async () => {
         if (isProcessing) return;
         setIsProcessing(true);
         setResults([]);
-        addLog("Bắt đầu quá trình quét lại toàn bộ đơn hàng Pending...", 'info');
+        addLog("Bắt đầu đối soát tự động với ngân hàng...", 'info');
 
         try {
-            // 1. Lấy danh sách các gói đang trạng thái pending
-            const { data: pendingOrders, error: fetchErr } = await supabase
-                .from('user_packages')
-                .select('*')
-                .eq('status', 'pending');
-
-            if (fetchErr) throw fetchErr;
-            if (!pendingOrders || pendingOrders.length === 0) {
-                addLog("Không có đơn hàng nào đang chờ xử lý.", 'success');
+            if (pendingOrders.length === 0) {
+                addLog("Không có đơn hàng nào đang chờ.", 'success');
                 setIsProcessing(false);
                 return;
             }
 
-            addLog(`Tìm thấy ${pendingOrders.length} đơn hàng đang chờ. Đang gọi API ngân hàng...`, 'info');
-
-            // 2. Gọi API ngân hàng
             const res = await fetch(API_BANK);
             const bankData = await res.json();
-            
-            let transactionsArray = [];
-            if (Array.isArray(bankData)) transactionsArray = bankData;
-            else if (bankData.data) transactionsArray = bankData.data;
-            else if (bankData.records) transactionsArray = bankData.records;
+            let transactionsArray = Array.isArray(bankData) ? bankData : (bankData.data || bankData.records || []);
 
-            // 3. Duyệt từng đơn pending để đối soát
             for (const order of pendingOrders) {
                 const targetContent = order.transfer_content?.toLowerCase().trim();
-                
-                if (!targetContent) {
-                    addLog(`Đơn hàng ${order.id.substring(0,8)} thiếu nội dung đối soát. Bỏ qua.`, 'error');
-                    continue;
-                }
+                if (!targetContent) continue;
 
-                const matchedTx = transactionsArray.find((tx: any) => {
-                    const txString = JSON.stringify(tx).toLowerCase();
-                    return txString.includes(targetContent);
-                });
+                const matchedTx = transactionsArray.find((tx: any) => JSON.stringify(tx).toLowerCase().includes(targetContent));
 
                 if (matchedTx) {
-                    addLog(`Khớp giao dịch! Đang kích hoạt gói cho User ID: ${order.user_id.substring(0,8)}`, 'success');
-                    
-                    const paidAmount = Number(matchedTx.amount || matchedTx.creditAmount || matchedTx.sotien || 0);
-
-                    // Cập nhật Profile
-                    await supabase.from('profiles').update({ has_purchased_package: true }).eq('id', order.user_id);
-
-                    // Kích hoạt gói
-                    const { error: updateErr } = await supabase
-                        .from('user_packages')
-                        .update({ status: 'active', invested_amount: paidAmount })
-                        .eq('id', order.id);
-
-                    if (!updateErr) {
-                        // Gọi hàm chia hoa hồng
-                        await supabase.rpc('distribute_commission', { 
-                            p_buyer_id: order.user_id, 
-                            p_amount: paidAmount 
-                        });
-                        addLog(`Đã kích hoạt và chia hoa hồng thành công cho đơn: ${targetContent}`, 'success');
-                    }
-                } else {
-                    addLog(`Đơn hàng "${targetContent}" vẫn chưa thấy tiền vào ngân hàng.`, 'info');
+                    await processActivate(order, Number(matchedTx.amount || matchedTx.creditAmount || 0), "Tự động");
                 }
             }
-
-            addLog("Hoàn tất quá trình quét lại.", 'success');
-
+            addLog("Đã quét xong lịch sử ngân hàng.", 'info');
+            loadPending();
         } catch (error: any) {
-            addLog(`Lỗi hệ thống: ${error.message}`, 'error');
+            addLog(`Lỗi: ${error.message}`, 'error');
         } finally {
             setIsProcessing(false);
         }
     };
 
+    // HÀM 2: DUYỆT ÉP (DÀNH CHO ĐƠN BỊ SÓT HOẶC SAI NỘI DUNG)
+    const handleManualApprove = async (order: any) => {
+        const amount = prompt(`Xác nhận duyệt tay cho đơn này?\nNhập số tiền đã nhận (VNĐ):`, order.invested_amount);
+        if (amount === null) return;
+        
+        setIsProcessing(true);
+        await processActivate(order, parseInt(amount), "Thủ công");
+        setIsProcessing(false);
+        loadPending();
+    };
+
+    // LOGIC KÍCH HOẠT CHUNG
+    const processActivate = async (order: any, amount: number, method: string) => {
+        try {
+            // 1. Cập nhật Profile
+            await supabase.from('profiles').update({ has_purchased_package: true }).eq('id', order.user_id);
+
+            // 2. Kích hoạt gói
+            const { error: updateErr } = await supabase
+                .from('user_packages')
+                .update({ status: 'active', invested_amount: amount })
+                .eq('id', order.id);
+
+            if (!updateErr) {
+                // 3. Chia hoa hồng (Gọi RPC)
+                const { error: rpcErr } = await supabase.rpc('distribute_commission', { 
+                    p_buyer_id: order.user_id, 
+                    p_amount: amount 
+                });
+                
+                if (rpcErr) {
+                    addLog(`Gói đã kích hoạt nhưng LỖI CHIA HOA HỒNG: ${rpcErr.message}`, 'error');
+                } else {
+                    addLog(`[${method}] Đã bù đơn thành công cho User: ${order.user_id.substring(0,6)}`, 'success');
+                }
+            }
+        } catch (err: any) {
+            addLog(`Lỗi xử lý: ${err.message}`, 'error');
+        }
+    };
+
     return (
-        <div className="min-h-screen bg-slate-50 p-8 font-sans">
-            <div className="max-w-3xl mx-auto">
+        <div className="min-h-screen bg-[#F8FAFC] p-4 md:p-8 font-sans">
+            <div className="max-w-5xl mx-auto space-y-6">
                 <div className="bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden">
-                    <div className="bg-slate-900 p-8 text-white">
-                        <div className="flex items-center gap-3 mb-2">
-                            <ShieldCheck className="w-8 h-8 text-blue-400" />
-                            <h1 className="text-2xl font-bold">Hệ thống Đối soát Thanh toán</h1>
+                    <div className="bg-slate-900 p-6 text-white flex justify-between items-center">
+                        <div>
+                            <h1 className="text-xl font-bold flex items-center gap-2">
+                                <ShieldCheck className="text-blue-400" /> Quản lý Đối soát & Bù đơn
+                            </h1>
+                            <p className="text-slate-400 text-xs mt-1">Tìm thấy {pendingOrders.length} đơn chưa xử lý</p>
                         </div>
-                        <p className="text-slate-400 text-sm italic">
-                            Chức năng này sẽ quét tất cả các đơn hàng "Pending" và kiểm tra lại lịch sử ngân hàng để kích hoạt bù nếu bị sót.
-                        </p>
+                        <button onClick={handleRescan} disabled={isProcessing} className="bg-blue-600 hover:bg-blue-700 px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all disabled:opacity-50">
+                            {isProcessing ? <Loader2 className="animate-spin w-4 h-4" /> : <RefreshCcw className="w-4 h-4" />} Quét Ngân Hàng
+                        </button>
                     </div>
 
-                    <div className="p-8">
-                        <button 
-                            onClick={handleRescan}
-                            disabled={isProcessing}
-                            className={`w-full py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-3 transition-all ${
-                                isProcessing 
-                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
-                                : 'bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-200 active:scale-[0.98]'
-                            }`}
-                        >
-                            {isProcessing ? <Loader2 className="w-6 h-6 animate-spin" /> : <RefreshCcw className="w-6 h-6" />}
-                            {isProcessing ? 'Đang quét lại...' : 'Bắt đầu Quét lại & Kích hoạt bù'}
-                        </button>
-
-                        <div className="mt-8">
-                            <div className="flex items-center gap-2 mb-4 text-slate-600 font-bold border-b pb-2">
-                                <History className="w-5 h-5" />
-                                Nhật ký xử lý
+                    <div className="p-6">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            {/* CỘT TRÁI: DANH SÁCH ĐƠN CHỜ */}
+                            <div>
+                                <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 uppercase text-xs tracking-wider">
+                                    <Search className="w-4 h-4" /> Đơn hàng đang treo (Pending)
+                                </h3>
+                                <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                                    {pendingOrders.length === 0 ? (
+                                        <div className="text-center py-20 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-slate-400">
+                                            Không có đơn hàng nào cần bù.
+                                        </div>
+                                    ) : (
+                                        pendingOrders.map(order => (
+                                            <div key={order.id} className="p-4 bg-white border border-slate-200 rounded-2xl hover:border-blue-300 transition-all shadow-sm group">
+                                                <div className="flex justify-between items-start">
+                                                    <div>
+                                                        <div className="font-black text-slate-800">{order.package_name}</div>
+                                                        <div className="text-xs text-blue-600 font-mono font-bold mt-1 bg-blue-50 px-2 py-0.5 rounded inline-block">
+                                                            Nội dung: {order.transfer_content || 'TRỐNG'}
+                                                        </div>
+                                                        <div className="text-[10px] text-slate-400 mt-2">ID: {order.user_id}</div>
+                                                    </div>
+                                                    <button 
+                                                        onClick={() => handleManualApprove(order)}
+                                                        className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-black shadow-lg shadow-emerald-200 transition-all active:scale-95"
+                                                    >
+                                                        DUYỆT TAY
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
                             </div>
-                            
-                            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                                {results.length === 0 && (
-                                    <div className="text-center py-10 text-slate-400 italic">
-                                        Chưa có nhật ký nào. Nhấn nút phía trên để bắt đầu.
-                                    </div>
-                                )}
-                                {results.map((res, i) => (
-                                    <div key={i} className={`p-4 rounded-xl text-sm font-medium flex items-start gap-3 border animate-in slide-in-from-left-2 duration-300 ${
-                                        res.type === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
-                                        res.type === 'error' ? 'bg-rose-50 text-rose-700 border-rose-100' :
-                                        'bg-blue-50 text-blue-700 border-blue-100'
-                                    }`}>
-                                        {res.type === 'success' ? <CheckCircle2 className="w-5 h-5 shrink-0" /> : 
-                                         res.type === 'error' ? <AlertTriangle className="w-5 h-5 shrink-0" /> : 
-                                         <Loader2 className="w-5 h-5 shrink-0" />}
-                                        {res.msg}
-                                    </div>
-                                ))}
+
+                            {/* CỘT PHẢI: NHẬT KÝ */}
+                            <div>
+                                <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 uppercase text-xs tracking-wider">
+                                    <History className="w-4 h-4" /> Nhật ký bù đơn
+                                </h3>
+                                <div className="bg-slate-900 rounded-2xl p-4 h-[500px] overflow-y-auto font-mono text-[11px] space-y-2 custom-scrollbar">
+                                    {results.length === 0 && <div className="text-slate-600 italic">Hệ thống sẵn sàng...</div>}
+                                    {results.map((res, i) => (
+                                        <div key={i} className={`${res.type === 'success' ? 'text-emerald-400' : res.type === 'error' ? 'text-rose-400' : 'text-blue-400'}`}>
+                                            [{new Date().toLocaleTimeString()}] {res.msg}
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     </div>
