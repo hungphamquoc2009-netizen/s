@@ -108,7 +108,12 @@ export default function AdminDashboard() {
             setPackages(sortedPkgs);
         }
 
-        const { data: uPkgs } = await supabase.from('user_packages').select('*').order('purchased_at', { ascending: false });
+        // === CHỈ SỬA ĐÚNG CHỖ NÀY: THÊM LỆNH .eq('status', 'active') ĐỂ LỌC GÓI PENDING ===
+        const { data: uPkgs } = await supabase
+            .from('user_packages')
+            .select('*')
+            .eq('status', 'active') 
+            .order('purchased_at', { ascending: false });
         if (uPkgs) setUserPackages(uPkgs);
 
         const { data: evts } = await supabase.from('events').select('*').order('created_at', { ascending: false });
