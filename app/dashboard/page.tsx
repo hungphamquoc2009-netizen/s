@@ -132,7 +132,6 @@ export default function FintechDashboard() {
         setSpinCount(profile.spin_count || 0);
     }
 
-    // === CHỈ SỬA ĐÚNG CHỖ NÀY: THÊM BỘ LỌC CHẶN GÓI PENDING ===
     const { data: myPkgs } = await supabase
       .from('user_packages')
       .select('*')
@@ -516,6 +515,9 @@ export default function FintechDashboard() {
 
   const totalInvestedAmount = myPackages.reduce((sum, p) => sum + (p.invested_amount || 0), 0);
   const currentWheelProgress = totalInvestedAmount % 60000;
+  
+  // TÍNH TỔNG HOA HỒNG NHẬN ĐƯỢC
+  const totalCommissionEarned = txHistory.filter(tx => tx.type === 'hoa_hong').reduce((sum, tx) => sum + (tx.amount || 0), 0);
 
   return (
     <div className="flex h-screen bg-[#F5F7FB] font-sans text-slate-800 overflow-hidden relative">
@@ -1030,11 +1032,21 @@ export default function FintechDashboard() {
 
                 <div className="space-y-4">
                   <h3 className="text-xl font-bold text-slate-900">Thống kê giới thiệu</h3>
-                  <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 flex flex-col md:flex-row items-center gap-6">
-                    <div className="flex flex-col items-center justify-center p-6 bg-blue-50 rounded-2xl w-full md:w-1/3 border border-blue-100">
-                        <span className="text-slate-500 font-medium mb-2">Tổng số lượt mời</span><span className="text-5xl font-extrabold text-[#1E6EFF]">{refStats.total}</span>
-                    </div>
-                    <div className="w-full md:w-2/3 grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  
+                  {/* BỔ SUNG: KHỐI THỐNG KÊ TỔNG NẠP VÀ TỔNG HOA HỒNG */}
+                  <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="flex flex-col items-center justify-center p-6 bg-blue-50 rounded-2xl border border-blue-100 shadow-sm">
+                          <span className="text-slate-500 font-medium mb-2">Tổng số lượt mời</span>
+                          <span className="text-4xl font-extrabold text-[#1E6EFF]">{refStats.total}</span>
+                      </div>
+                      <div className="flex flex-col items-center justify-center p-6 bg-emerald-50 rounded-2xl border border-emerald-100 shadow-sm">
+                          <span className="text-slate-500 font-medium mb-2">Tổng hoa hồng nhận được</span>
+                          <span className="text-4xl font-extrabold text-emerald-600">{totalCommissionEarned.toLocaleString('vi-VN')} ₫</span>
+                      </div>
+                  </div>
+
+                  <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 w-full">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                        <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 text-center"><span className="text-slate-500 text-sm font-medium block mb-1">Cấp 1 (F1)</span><span className="text-2xl font-bold text-slate-800">{refStats.f1}</span></div>
                        <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 text-center"><span className="text-slate-500 text-sm font-medium block mb-1">Cấp 2 (F2)</span><span className="text-2xl font-bold text-slate-800">{refStats.f2}</span></div>
                        <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 text-center"><span className="text-slate-500 text-sm font-medium block mb-1">Cấp 3 (F3)</span><span className="text-2xl font-bold text-slate-800">{refStats.f3}</span></div>
@@ -1048,12 +1060,16 @@ export default function FintechDashboard() {
                         <table className="w-full text-left border-collapse">
                             <thead>
                                 <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 text-sm">
-                                    <th className="p-4 font-semibold">Tài khoản (ID)</th><th className="p-4 font-semibold text-center">Cấp độ</th><th className="p-4 font-semibold">Ngày tham gia</th>
+                                    <th className="p-4 font-semibold">Tài khoản (ID)</th>
+                                    <th className="p-4 font-semibold text-center">Cấp độ</th>
+                                    <th className="p-4 font-semibold text-right">Tổng nạp (VNĐ)</th>
+                                    <th className="p-4 font-semibold text-right">Hoa hồng (VNĐ)</th>
+                                    <th className="p-4 font-semibold">Ngày tham gia</th>
                                 </tr>
                             </thead>
                             <tbody className="text-sm">
                                 {referralList.length === 0 ? (
-                                    <tr><td colSpan={3} className="p-6 text-center text-slate-500">Chưa có thành viên nào đăng ký qua link của bạn.</td></tr>
+                                    <tr><td colSpan={5} className="p-6 text-center text-slate-500">Chưa có thành viên nào đăng ký qua link của bạn.</td></tr>
                                 ) : (
                                     referralList.map((user) => {
                                         const shortUserId = user.id ? user.id.substring(0, 6).toUpperCase() : 'UNKNOWN';
@@ -1063,7 +1079,17 @@ export default function FintechDashboard() {
                                                 ID: <span className="text-[#1E6EFF] font-bold">{shortUserId}</span>
                                                 <span className="block text-xs text-slate-400 font-normal">{maskEmail(user.email)}</span>
                                             </td>
-                                            <td className="p-4 text-center"><span className={`px-3 py-1 rounded-full font-bold text-xs ${user.level === 'F1' ? 'bg-blue-100 text-blue-700' : user.level === 'F2' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{user.level}</span></td>
+                                            <td className="p-4 text-center">
+                                                <span className={`px-3 py-1 rounded-full font-bold text-xs ${user.level === 'F1' ? 'bg-blue-100 text-blue-700' : user.level === 'F2' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                                    {user.level}
+                                                </span>
+                                            </td>
+                                            <td className="p-4 text-right font-bold text-blue-600">
+                                                {(user.total_deposit || 0).toLocaleString('vi-VN')} ₫
+                                            </td>
+                                            <td className="p-4 text-right font-bold text-emerald-600">
+                                                +{(user.total_commission || 0).toLocaleString('vi-VN')} ₫
+                                            </td>
                                             <td className="p-4 text-slate-500">{user.created_at ? new Date(user.created_at).toLocaleDateString('vi-VN') : 'Không rõ'}</td>
                                         </tr>
                                     )})
