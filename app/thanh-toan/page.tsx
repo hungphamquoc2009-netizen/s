@@ -17,7 +17,7 @@ function PaymentContent() {
   const [userId, setUserId] = useState<string>('');
   const [transferContent, setTransferContent] = useState<string>('');
   const [packagePrice, setPackagePrice] = useState<number>(0);
-  const [dailyRate, setDailyRate] = useState<number>(0); // Thêm state lưu lãi suất ngày
+  const [dailyRate, setDailyRate] = useState<number>(0); 
   const [isCopied, setIsCopied] = useState<Record<string, boolean>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -39,44 +39,51 @@ function PaymentContent() {
 
       const email = session.user.email || '';
       
-      // XỬ LÝ CHỐNG TRÙNG LẶP VÀ LỖI FONT NGÂN HÀNG: 
-      // 1. Chỉ lấy chữ/số, viết hoa
       const name = email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
       setUserName(name);
       setUserId(session.user.id);
       
-      // 2. Tạo một mã random 5 số để đảm bảo KHÔNG BAO GIỜ TRÙNG LẶP
       const randomCode = Math.floor(10000 + Math.random() * 90000);
-      
-      // 3. Tên gói cũng lọc bỏ ký tự đặc biệt, khoảng trắng, viết hoa
       const safePackageName = packageName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
 
-      // Nội dung chuyển khoản chuẩn mới: MUA [TênGói] [TênUser] [MãRandom]
       const content = `MUA ${safePackageName} ${name} ${randomCode}`;
       setTransferContent(content);
 
-      // Lấy thông tin giá tiền và % lợi nhuận của gói từ bảng packages
       const { data: pkgData, error: pkgError } = await supabase
         .from('packages')
         .select('limits, return_rate')
         .eq('name', packageName)
         .single();
 
+      let currentPrice = 0;
+      let currentDailyRate = 0;
+
       if (pkgData && !pkgError) {
-        // Xử lý giá tiền (giữ lại số nguyên)
         if (pkgData.limits) {
           const numericPrice = parseInt(pkgData.limits.replace(/\D/g, ''), 10) || 0;
           setPackagePrice(numericPrice);
+          currentPrice = numericPrice;
         }
         
-        // Xử lý lãi suất (Ví dụ: "18%" -> lấy số 18 -> tính ra lãi mỗi ngày)
         if (pkgData.return_rate) {
           const rateMatch = pkgData.return_rate.match(/\d+/);
           const yearlyRate = rateMatch ? parseInt(rateMatch[0], 10) : 0;
           const calculatedDailyRate = yearlyRate / 365 / 100;
           setDailyRate(calculatedDailyRate);
+          currentDailyRate = calculatedDailyRate;
         }
       }
+
+      // === PHẦN BỔ SUNG: ĐĂNG KÝ ĐƠN HÀNG PENDING ĐỂ AUTO KHI TẮT WEB ===
+      // Việc này giúp Server/Cronjob biết có một đơn hàng đang chờ để tự duyệt mà không cần bạn mở web
+      await supabase.from('user_packages').insert({
+        user_id: session.user.id,
+        package_name: packageName,
+        invested_amount: currentPrice,
+        daily_interest_rate: currentDailyRate,
+        status: 'pending', // Trạng thái chờ xử lý
+        transfer_content: content // Lưu lại để đối soát tự động
+      });
 
       setIsLoading(false);
     };
@@ -89,10 +96,9 @@ function PaymentContent() {
     if (!transferContent || !userId) return;
 
     let intervalId: NodeJS.Timeout;
-    let isChecking = false; // Cờ chống gọi API đè nhau
+    let isChecking = false;
 
     const checkPaymentStatus = async () => {
-      // Nếu đang check dở thì không gọi lại để tránh spam API
       if (isChecking) return;
       isChecking = true;
 
@@ -102,55 +108,50 @@ function PaymentContent() {
         
         const targetContent = transferContent.toLowerCase().trim();
 
-        // Xử lý linh hoạt format dữ liệu của API Bank
         let transactionsArray = [];
         if (Array.isArray(data)) transactionsArray = data;
         else if (data.data && Array.isArray(data.data)) transactionsArray = data.data;
         else if (data.transactions && Array.isArray(data.transactions)) transactionsArray = data.transactions;
         else if (data.records && Array.isArray(data.records)) transactionsArray = data.records;
 
-        // Tìm giao dịch chứa nội dung chuyển khoản tương ứng
         const matchedTx = transactionsArray.find((tx: any) => {
             const txString = JSON.stringify(tx).toLowerCase();
             return txString.includes(targetContent);
         });
 
         if (matchedTx) {
-          // Dừng polling ngay khi đã tìm thấy
           clearInterval(intervalId); 
           document.removeEventListener('visibilitychange', handleVisibilityChange);
           
-          // Lấy chính xác số tiền khách đã chuyển
           const paidAmount = Number(matchedTx.amount || matchedTx.creditAmount || matchedTx.sotien || matchedTx.tien || 0);
 
-          // 1. Cập nhật trạng thái đã mua gói vào profile
+          // Cập nhật trạng thái profile
           await supabase
             .from('profiles')
             .update({ has_purchased_package: true })
             .eq('id', userId);
 
-          // 2. CHIA HOA HỒNG TỰ ĐỘNG CHO F1, F2, F3
+          // Chia hoa hồng
           if (paidAmount > 0) {
-              const { error: rpcError } = await supabase.rpc('distribute_commission', { 
+              await supabase.rpc('distribute_commission', { 
                   p_buyer_id: userId, 
                   p_amount: paidAmount 
               });
-              if (rpcError) console.error("Lỗi khi chia hoa hồng:", rpcError);
           }
 
-          // 3. TẠO GÓI ĐẦU TƯ ĐANG CHẠY VÀO BẢNG user_packages (MỚI)
+          // Cập nhật gói từ 'pending' sang 'active'
           if (paidAmount > 0) {
-              const { error: pkgInsertError } = await supabase.from('user_packages').insert({
-                  user_id: userId,
-                  package_name: packageName,
-                  invested_amount: paidAmount, // Ghi nhận đúng số tiền thực tế khách đã chuyển
-                  daily_interest_rate: dailyRate,
-                  status: 'active'
-              });
-              if (pkgInsertError) console.error("Lỗi khi tạo gói đầu tư:", pkgInsertError);
+              await supabase
+                .from('user_packages')
+                .update({ 
+                    status: 'active',
+                    invested_amount: paidAmount 
+                })
+                .eq('user_id', userId)
+                .eq('transfer_content', transferContent);
           }
 
-          alert("Thanh toán thành công! Hệ thống đang chuyển hướng về bảng điều khiển.");
+          // BỎ ALERT - CHUYỂN HƯỚNG THẲNG
           window.location.href = '/dashboard';
         }
       } catch (error) {
@@ -160,20 +161,14 @@ function PaymentContent() {
       }
     };
 
-    // Hàm xử lý khi người dùng quay lại tab web từ ứng dụng khác
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        checkPaymentStatus(); // Gọi kiểm tra ngay lập tức khi mở lại web
+        checkPaymentStatus();
       }
     };
 
-    // Chạy ngay lần đầu tiên
     checkPaymentStatus();
-    
-    // Lắng nghe sự kiện chuyển tab/quay lại app
     document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    // Thiết lập vòng lặp kiểm tra mỗi 5 giây cho trường hợp người dùng dùng 2 thiết bị
     intervalId = setInterval(checkPaymentStatus, 5000);
 
     return () => {
@@ -199,7 +194,6 @@ function PaymentContent() {
     );
   }
 
-  // Tích hợp số tiền động (packagePrice) vào mã VietQR
   const qrUrl = `https://img.vietqr.io/image/VPBank-${ACCOUNT_NUMBER}-qr_only.png?amount=${packagePrice}&addInfo=${encodeURIComponent(transferContent)}&accountName=${encodeURIComponent(ACCOUNT_NAME)}`;
 
   return (
@@ -231,7 +225,7 @@ function PaymentContent() {
               <span className="text-sm font-bold animate-pulse">Đang chờ thanh toán...</span>
             </div>
             <p className="text-xs text-slate-400 max-w-[250px]">
-              Hệ thống sẽ tự động xác nhận ngay khi nhận được tiền. Không cần tải lại trang.
+              Hệ thống sẽ tự động xác nhận ngay khi nhận được tiền. Bạn có thể đóng trang này sau khi chuyển.
             </p>
           </div>
         </div>
@@ -325,7 +319,7 @@ function PaymentContent() {
               </button>
             </div>
 
-            {/* Nội dung chuyển khoản (Quan trọng nhất) */}
+            {/* Nội dung chuyển khoản */}
             <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex items-center justify-between relative overflow-hidden">
               <div className="absolute left-0 top-0 bottom-0 w-1 bg-amber-400"></div>
               <div className="flex items-center gap-3 pl-2">
@@ -360,7 +354,7 @@ function PaymentContent() {
   );
 }
 
-// Bọc Component bằng Suspense để Next.js (App Router) không báo lỗi khi build với useSearchParams
+// Bọc Component bằng Suspense
 export default function PaymentPage() {
   return (
     <Suspense fallback={
