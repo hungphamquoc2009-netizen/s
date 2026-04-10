@@ -574,7 +574,7 @@ export default function FintechDashboard() {
   };
 
   const copyReferralLink = () => {
-    navigator.clipboard.writeText(`https://finvest.fun/register?ref=${shortRefCode}`);
+    navigator.clipboard.writeText(`https://finvest.sbs/register?ref=${shortRefCode}`);
     setIsCopied(true); 
     setTimeout(() => setIsCopied(false), 2000);
   };
